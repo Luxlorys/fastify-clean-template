@@ -1,5 +1,6 @@
 import fp from "fastify-plugin";
 import { createPrismaUserRepository } from "./user.repository.prisma.js";
+import { createS3AvatarStorage } from "./user.storage.s3.js";
 import { createUserService } from "./user.service.js";
 import { userRoutes } from "./user.routes.js";
 import { systemClock } from "@/lib/clock.js";
@@ -17,7 +18,13 @@ import type { FastifyInstance } from "fastify";
  */
 const userModule = async (fastify: FastifyInstance) => {
     const repository = createPrismaUserRepository(fastify.prisma);
-    const service = createUserService({ repository, clock: systemClock });
+
+    const storage = createS3AvatarStorage(
+        fastify.s3,
+        fastify.config.S3_AVATARS_BUCKET,
+    );
+
+    const service = createUserService({ repository, storage, clock: systemClock });
 
     fastify.decorate("userService", service);
 

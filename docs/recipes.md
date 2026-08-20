@@ -66,40 +66,30 @@ in an `auth` module's service (`fastify.jwt.sign(...)` passed in as a
 
 ## 2. An outbound adapter (object storage, mail, payments…)
 
-Same pattern as the database: **port in the consumer's vocabulary, adapter
-owns the SDK, plugin owns the client lifecycle.**
+This one lives in the code — the avatar upload in `modules/user` is the full
+reference: **port in the consumer's vocabulary, adapter owns the SDK, plugin
+owns the client lifecycle.**
 
-Port — what the use case needs, nothing more (module-local, or `lib/` if
-several modules share it):
+- **Plugin**: `src/plugins/s3.ts` — client from config, `decorate("s3")`,
+  destroy on close. Typed in `src/types/fastify.d.ts`.
+- **Port**: `modules/user/user.ports.ts` — `AvatarStorage.uploadAvatar(...)`;
+  purpose-named, zero SDK vocabulary.
+- **Adapter**: `modules/user/user.storage.s3.ts` — bucket, key layout,
+  `PutObjectCommand`; the only module file importing `@aws-sdk/*`.
+- **Wiring**: `modules/user/index.ts` —
+  `createS3AvatarStorage(fastify.s3, config.S3_AVATARS_BUCKET)`.
+- **Boundaries**: `storage-adapter-stays-below` +
+  `aws-sdk-only-in-storage-adapters` in `.dependency-cruiser.cjs` — the
+  storage twins of the Prisma rules.
+- **Tests**: `test/helpers/in-memory-avatar-storage.ts` (unit lane),
+  `test/int/user.storage.s3.test.ts` + `test/int/setup/minio.ts` (adapter
+  contract against MinIO — a real S3 API, no AWS account needed).
 
-```ts
-// modules/report/report.storage.ts
-export type ReportStorage = {
-    putReport: (key: string, body: Buffer) => Promise<void>;
-    signedReadUrl: (key: string) => Promise<string>;
-};
-```
-
-Adapter — the only file importing the SDK:
-
-```ts
-// modules/report/report.storage.s3.ts
-import { GetObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
-import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
-import type { ReportStorage } from "./report.storage.js";
-
-export const createS3ReportStorage = (
-    s3: S3Client,
-    bucket: string
-): ReportStorage => ({ ... });
-```
-
-Plugin — client lifecycle, config, decoration (`src/plugins/s3.ts`, typed in
-`fastify.d.ts`); the module's `index.ts` wires
-`createS3ReportStorage(fastify.s3, fastify.config.S3_BUCKET)` into the
-service. Unit tests hand the service an in-memory `ReportStorage`. Add a
-dependency-cruiser rule pinning `@aws-sdk/*` to `*.storage.s3.ts` files,
-mirroring `prisma-only-in-adapters`.
+To add another technology (a mail sender, a Redis cache, a payment client),
+copy that six-piece shape with a new role suffix (`*.mailer.ses.ts`,
+`*.cache.redis.ts`) and its dependency-cruiser pair. Presigned URLs, when
+needed, are one more port method (`signedReadUrl`) implemented in the adapter
+with `@aws-sdk/s3-request-presigner`.
 
 ---
 

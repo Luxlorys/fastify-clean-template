@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { PostgreSqlContainer } from "@testcontainers/postgresql";
 import { Client } from "pg";
+import { startMinio } from "./minio.js";
 import {
     INT_TEST_WORKERS,
     TEMPLATE_DATABASE,
@@ -13,6 +14,7 @@ import type { TestProject } from "vitest/node";
 declare module "vitest" {
     interface ProvidedContext {
         databaseUri: string;
+        s3Endpoint: string;
     }
 }
 
@@ -51,14 +53,11 @@ const runMigrationFiles = async (client: Client) => {
 };
 
 /**
- * Boots one throwaway Postgres for the whole run, migrates a template
- * database once, then clones one database per vitest worker.
- *
- * Migration work happens once per run rather than once per test. Per-test
- * isolation is a TRUNCATE (see reset-db.ts) and per-worker isolation is a
- * separate database, so test files still run in parallel.
+ * Boots one throwaway Postgres, migrates a template database once, then
+ * clones one database per vitest worker (per-test isolation is a TRUNCATE,
+ * see reset-db.ts).
  */
-const globalSetup = async ({ provide }: TestProject) => {
+const startPostgres = async () => {
     const container = await new PostgreSqlContainer("postgres:17-alpine")
         .withTmpFs({ "/var/lib/postgresql/data": "rw" })
         .start();
@@ -95,10 +94,17 @@ const globalSetup = async ({ provide }: TestProject) => {
         await admin.end();
     }
 
-    provide("databaseUri", databaseUri);
+    return { container, databaseUri };
+};
+
+const globalSetup = async ({ provide }: TestProject) => {
+    const [postgres, minio] = await Promise.all([startPostgres(), startMinio()]);
+
+    provide("databaseUri", postgres.databaseUri);
+    provide("s3Endpoint", minio.endpoint);
 
     return async () => {
-        await container.stop();
+        await Promise.all([postgres.container.stop(), minio.container.stop()]);
     };
 };
 

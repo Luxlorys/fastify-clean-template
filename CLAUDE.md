@@ -29,10 +29,13 @@ task, stop and ask; do not add exemptions to `.dependency-cruiser.cjs`.
 
 1. **Follow the file roles.** Inside `src/modules/<name>/`: `*.entity.ts` /
    `*.errors.ts` (pure domain), `*.repository.ts` (port), `*.ports.ts`
-   (consumer ports for other modules' capabilities), `*.repository.prisma.ts`
-   (adapter), `*.service.ts` (use cases), `*.schema.ts` + `*.routes.ts`
-   (interface), `index.ts` (wiring). The boundary rules match on these names —
-   a file outside the convention silently escapes its layer's checks.
+   (outbound ports — other modules' capabilities, storage, …),
+   `*.repository.prisma.ts` and `*.storage.s3.ts` (adapters), `*.service.ts`
+   (use cases), `*.schema.ts` + `*.routes.ts` (interface), `index.ts`
+   (wiring). The boundary rules match on these names — a file outside the
+   convention silently escapes its layer's checks. A new adapter technology
+   (Redis cache, mail, …) means a new role suffix plus its rules in
+   `.dependency-cruiser.cjs`, mirroring the S3 pair.
    1a. **Cross-module use goes through decorations, never imports.** A module
    offering a capability publishes its service as a decoration (see
    `modules/user/index.ts` — fp-wrapped, mounts its own prefix, typed in
@@ -40,9 +43,11 @@ task, stop and ask; do not add exemptions to `.dependency-cruiser.cjs`.
    `*.ports.ts` and wires `fastify.<x>Service` in its `index.ts` (see
    `modules/onboarding`). Entities never cross module borders — ids and plain
    inputs do.
-2. **Prisma only in adapters** (plus `plugins/database.ts` and test
-   factories). Services never see Prisma types; ports speak domain types the
-   adapter maps to with a `toX()` function.
+2. **SDKs only in adapters.** Prisma lives in `*.repository.prisma.ts` (plus
+   `plugins/database.ts` and test factories); `@aws-sdk/*` lives in
+   `*.storage.s3.ts` (plus `plugins/s3.ts`). Services never see SDK types;
+   ports speak the module's vocabulary — purpose in the port
+   (`uploadAvatar`), technology in the adapter (buckets, keys, commands).
 3. **Services stay framework-free**: no Fastify, no Zod, no HTTP concepts, no
    status codes, no wire envelopes. Inputs/outputs are the service's own
    declared types.

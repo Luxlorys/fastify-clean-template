@@ -9,8 +9,9 @@
  *   *.routes.ts, *.schema.ts interface layer  — fastify + zod, calls the service
  *   *.service.ts             application      — entity + port + lib only
  *   *.repository.prisma.ts   adapter          — implements the port, owns Prisma
+ *   *.storage.s3.ts          adapter          — implements a storage port, owns @aws-sdk
  *   *.repository.ts          port             — types only
- *   *.ports.ts               consumer ports   — types only (capabilities other modules publish)
+ *   *.ports.ts               outbound ports   — types only (storage, other modules' services, …)
  *   *.entity.ts, *.errors.ts domain           — pure TypeScript
  */
 
@@ -28,6 +29,10 @@ const PORT_ALLOWED = DOMAIN_ALLOWED;
 /** What an adapter may depend on: domain, port, the generated Prisma client, pure lib. */
 const ADAPTER_ALLOWED =
     "^src/modules/[^/]+/[^/]+\\.(entity|errors|repository)\\.ts$|^src/generated/|^src/lib/(errors|clock|pagination)\\.ts$";
+
+/** What a storage adapter may depend on: domain, its ports, the AWS SDK, pure lib (node builtins are exempted in the rule itself). */
+const STORAGE_ADAPTER_ALLOWED =
+    "^src/modules/[^/]+/[^/]+\\.(entity|errors|repository|ports)\\.ts$|^src/lib/(errors|clock|pagination)\\.ts$|^node_modules/@aws-sdk";
 
 module.exports = {
     forbidden: [
@@ -76,6 +81,28 @@ module.exports = {
             to: { pathNot: ADAPTER_ALLOWED },
         },
         {
+            name: "storage-adapter-stays-below",
+            severity: "error",
+            comment:
+                "A storage adapter implements its port; it may not reach up into services, routes or " +
+                "schemas, and it may not import Fastify or Prisma.",
+            from: { path: "^src/modules/[^/]+/[^/]+\\.storage\\.s3\\.ts$" },
+            to: { pathNot: STORAGE_ADAPTER_ALLOWED, dependencyTypesNot: ["core"] },
+        },
+        {
+            name: "aws-sdk-only-in-storage-adapters",
+            severity: "error",
+            comment:
+                "The AWS SDK may be imported only by *.storage.s3.ts adapters, the s3 plugin " +
+                "(client lifecycle), the fastify type augmentation, and tests. Everything else " +
+                "programs against a port — the storage twin of prisma-only-in-adapters.",
+            from: {
+                pathNot:
+                    "\\.storage\\.s3\\.ts$|^src/plugins/s3\\.ts$|^src/types/fastify\\.d\\.ts$|^test/",
+            },
+            to: { path: "^node_modules/@aws-sdk" },
+        },
+        {
             name: "prisma-only-in-adapters",
             severity: "error",
             comment:
@@ -94,7 +121,7 @@ module.exports = {
                 "Only a module's index.ts (its composition root) and tests may instantiate an adapter. " +
                 "Everything else programs against the port.",
             from: { pathNot: "(^|/)index\\.ts$|^test/" },
-            to: { path: "\\.repository\\.prisma\\.ts$" },
+            to: { path: "\\.repository\\.prisma\\.ts$|\\.storage\\.s3\\.ts$" },
         },
         {
             name: "modules-are-islands",

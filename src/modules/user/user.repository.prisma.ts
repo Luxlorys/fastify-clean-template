@@ -7,6 +7,7 @@ const toUser = (row: UserRow): User => ({
     id: row.id,
     email: row.email,
     name: row.name,
+    avatarKey: row.avatarKey,
     onboardedAt: row.onboardedAt,
     createdAt: row.createdAt,
 });
@@ -43,6 +44,7 @@ export const createPrismaUserRepository = (
                 data: {
                     email: user.email,
                     name: user.name,
+                    avatarKey: user.avatarKey,
                     onboardedAt: user.onboardedAt,
                 },
             })

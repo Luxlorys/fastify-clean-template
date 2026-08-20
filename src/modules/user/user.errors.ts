@@ -1,4 +1,4 @@
-import { ConflictError, NotFoundError } from "@/lib/errors.js";
+import { ConflictError, NotFoundError, UnprocessableError } from "@/lib/errors.js";
 
 export class UserNotFoundError extends NotFoundError {
     constructor() {
@@ -15,5 +15,11 @@ export class EmailTakenError extends ConflictError {
 export class UserAlreadyOnboardedError extends ConflictError {
     constructor() {
         super("User has already completed onboarding.");
+    }
+}
+
+export class EmptyAvatarError extends UnprocessableError {
+    constructor() {
+        super("The avatar upload contains no data.");
     }
 }

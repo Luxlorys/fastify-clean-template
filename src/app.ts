@@ -3,6 +3,7 @@ import { serializerCompiler, validatorCompiler } from "fastify-type-provider-zod
 import { loggerFor } from "./lib/logger.js";
 import databasePlugin from "./plugins/database.js";
 import errorHandlerPlugin from "./plugins/error-handler.js";
+import s3Plugin from "./plugins/s3.js";
 import securityPlugin from "./plugins/security.js";
 import swaggerPlugin from "./plugins/swagger.js";
 import { healthModule } from "./modules/health/index.js";
@@ -34,6 +35,7 @@ export const buildApp = async (config: AppConfig): Promise<FastifyInstance> => {
 
     await app.register(errorHandlerPlugin);
     await app.register(databasePlugin);
+    await app.register(s3Plugin);
     await app.register(securityPlugin);
     await app.register(swaggerPlugin);
 

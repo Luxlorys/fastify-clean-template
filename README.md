@@ -14,6 +14,7 @@ framework. Every architectural rule is enforced by a tool, not a README.
 | Language             | TypeScript (strict, ESM, NodeNext)                                                                                    |
 | Validation + OpenAPI | [Zod 4](https://zod.dev) via `fastify-type-provider-zod` — one schema validates _and_ documents                       |
 | Database             | PostgreSQL + [Prisma 7](https://www.prisma.io) (driver adapter, generated client in `src/generated/`)                 |
+| Object storage       | S3 API via `@aws-sdk/client-s3` behind a module port — [MinIO](https://min.io) stands in for AWS in tests             |
 | Tests                | [Vitest](https://vitest.dev) — unit lane (no infra) + integration lane ([Testcontainers](https://testcontainers.com)) |
 | Boundaries           | [dependency-cruiser](https://github.com/sverweij/dependency-cruiser) — the architecture as CI-enforced rules          |
 | Lint / format        | ESLint (type-aware, tests included) + Prettier                                                                        |
@@ -48,7 +49,7 @@ src/
 ├── modules/                   # one folder per domain capability — see below
 │   ├── health/                # smallest possible module: one file
 │   ├── task/                  # the reference module (publishes taskService)
-│   ├── user/                  # publisher module (publishes userService)
+│   ├── user/                  # publisher module + S3 avatar storage (port/adapter example)
 │   └── onboarding/            # consumer module: cross-module workflow via ports
 └── generated/prisma/          # generated client (gitignored)
 ```

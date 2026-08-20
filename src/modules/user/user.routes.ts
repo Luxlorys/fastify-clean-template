@@ -1,4 +1,6 @@
 import {
+    AVATAR_CONTENT_TYPES,
+    avatarHeadersSchema,
     createUserBodySchema,
     userParamsSchema,
     userResponseSchema,
@@ -48,6 +50,47 @@ export const userRoutes =
             },
             async (request) => {
                 const user = await service.getUser(request.params.id);
+
+                return toUserResponse(user);
+            },
+        );
+
+        // Binary uploads need a parser; scoped to this module's routes only.
+        fastify.addContentTypeParser(
+            [...AVATAR_CONTENT_TYPES],
+            { parseAs: "buffer" },
+            (_request, body, done) => {
+                done(null, body);
+            },
+        );
+
+        fastify.put(
+            "/:id/avatar",
+            {
+                bodyLimit: 5 * 1024 * 1024,
+                schema: {
+                    tags: [USER_TAG],
+                    summary: "Upload a user's avatar (raw PNG or JPEG body)",
+                    consumes: [...AVATAR_CONTENT_TYPES],
+                    params: userParamsSchema,
+                    headers: avatarHeadersSchema,
+                    response: {
+                        200: userResponseSchema,
+                        404: errorResponseSchema,
+                        415: errorResponseSchema,
+                        422: errorResponseSchema,
+                    },
+                },
+            },
+            async (request) => {
+                // The scoped parser above guarantees a Buffer body.
+                const body = request.body as Buffer;
+
+                const user = await service.setAvatar({
+                    id: request.params.id,
+                    body,
+                    contentType: request.headers["content-type"],
+                });
 
                 return toUserResponse(user);
             },

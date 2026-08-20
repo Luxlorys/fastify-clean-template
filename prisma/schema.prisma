@@ -17,6 +17,7 @@ model User {
   id          Int       @id @default(autoincrement())
   email       String    @unique
   name        String
+  avatarKey   String?   @map("avatar_key")
   onboardedAt DateTime? @map("onboarded_at")
   createdAt   DateTime  @default(now()) @map("created_at")
 

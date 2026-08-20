@@ -27,6 +27,7 @@ export const createInMemoryUserRepository = (
                 id: nextId++,
                 email: data.email,
                 name: data.name,
+                avatarKey: null,
                 onboardedAt: null,
                 createdAt: clock.now(),
             };

@@ -2,10 +2,12 @@ import { describe, expect, it } from "vitest";
 import { createUserService } from "@/modules/user/user.service.js";
 import {
     EmailTakenError,
+    EmptyAvatarError,
     UserAlreadyOnboardedError,
     UserNotFoundError,
 } from "@/modules/user/user.errors.js";
 import { fixedClock } from "../helpers/fixed-clock.js";
+import { createInMemoryAvatarStorage } from "../helpers/in-memory-avatar-storage.js";
 import { createInMemoryUserRepository } from "../helpers/in-memory-user-repository.js";
 
 const NOW = "2026-08-21T12:00:00Z";
@@ -13,9 +15,10 @@ const NOW = "2026-08-21T12:00:00Z";
 const makeService = () => {
     const clock = fixedClock(NOW);
     const repository = createInMemoryUserRepository(clock);
-    const service = createUserService({ repository, clock });
+    const storage = createInMemoryAvatarStorage();
+    const service = createUserService({ repository, storage, clock });
 
-    return { service, repository };
+    return { service, repository, storage };
 };
 
 describe("createUser", () => {
@@ -79,5 +82,59 @@ describe("markOnboarded", () => {
         await expect(service.markOnboarded(999)).rejects.toBeInstanceOf(
             UserNotFoundError,
         );
+    });
+});
+
+describe("setAvatar", () => {
+    it("uploads through the storage port and persists the returned key", async () => {
+        const { service, repository, storage } = makeService();
+        const created = await service.createUser({
+            email: "andrei@example.com",
+            name: "Andrei",
+        });
+
+        const updated = await service.setAvatar({
+            id: created.id,
+            body: Buffer.from("fake-png-bytes"),
+            contentType: "image/png",
+        });
+
+        expect(updated.avatarKey).toMatch(new RegExp(`^avatars/${created.id}/`));
+        expect(repository.rows()[0]?.avatarKey).toBe(updated.avatarKey);
+
+        const stored = storage.objects().get(updated.avatarKey ?? "");
+
+        expect(stored?.contentType).toBe("image/png");
+        expect(stored?.body.toString()).toBe("fake-png-bytes");
+    });
+
+    it("rejects an empty upload before touching storage", async () => {
+        const { service, storage } = makeService();
+        const created = await service.createUser({
+            email: "andrei@example.com",
+            name: "Andrei",
+        });
+
+        await expect(
+            service.setAvatar({
+                id: created.id,
+                body: Buffer.alloc(0),
+                contentType: "image/png",
+            }),
+        ).rejects.toBeInstanceOf(EmptyAvatarError);
+
+        expect(storage.objects().size).toBe(0);
+    });
+
+    it("throws UserNotFoundError for an unknown user", async () => {
+        const { service } = makeService();
+
+        await expect(
+            service.setAvatar({
+                id: 999,
+                body: Buffer.from("data"),
+                contentType: "image/png",
+            }),
+        ).rejects.toBeInstanceOf(UserNotFoundError);
     });
 });

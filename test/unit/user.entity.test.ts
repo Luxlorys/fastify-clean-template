@@ -9,6 +9,7 @@ const freshUser = (overrides: Partial<User> = {}): User => ({
     id: 1,
     email: "andrei@example.com",
     name: "Andrei",
+    avatarKey: null,
     onboardedAt: null,
     createdAt: NOW,
     ...overrides,
