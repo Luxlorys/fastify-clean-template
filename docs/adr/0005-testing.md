@@ -16,12 +16,12 @@ against Postgres", because services were inseparable from Prisma's API.
 
 Four altitudes, two lanes:
 
-| Altitude         | Lane        | Substitutes                                  |
-| ---------------- | ----------- | -------------------------------------------- |
-| Domain rules     | unit        | nothing — pure functions                     |
-| Use cases        | unit        | in-memory port implementations + fixed clock |
-| Adapter contract | integration | real PostgreSQL                              |
-| Wire contract    | integration | nothing — the real app via `inject()`        |
+| Altitude                | Lane        | Substitutes                                  |
+| ----------------------- | ----------- | -------------------------------------------- |
+| Domain rules            | unit        | nothing — pure functions                     |
+| Use cases (and caching) | unit        | in-memory port implementations + fixed clock |
+| Port implementations    | integration | real PostgreSQL, Redis, S3 (MinIO)           |
+| Wire contract           | integration | nothing — the real app via `inject()`        |
 
 And one prohibition: **no mocking framework**. The unit lane substitutes
 _implementations of ports_ (an in-memory repository honoring the same
@@ -34,9 +34,11 @@ ships zero `vi.mock`/`vi.fn` calls.
   they restate the implementation and break on refactors that preserve
   behavior. Port-implementation tests assert behavior ("creating then listing
   returns the task first") and survive refactors.
-- The in-memory implementation is honest because the _real_ implementation's integration
-  tests pin the same contract against the real database. The pair — fake
-  verified against real — is what makes fast unit tests trustworthy.
+- The in-memory implementation is honest because the _real_ implementation's
+  integration tests pin the same contract against the real thing. The pair —
+  fake verified against real — is what makes fast unit tests trustworthy, and it
+  is why every port has both halves: `in-memory-task-cache.ts` against
+  `test/int/task.cache.repository.test.ts`, and so on.
 - `buildApp(config)` taking config as a value lets integration tests exercise
   config-dependent behavior (docs auth on/off) by passing overrides, without
   env mutation or module mocking.
@@ -52,3 +54,7 @@ ships zero `vi.mock`/`vi.fn` calls.
 - When a port gains semantics (new ordering, filters), extend **both** the
   in-memory implementation and the integration tests; a drifting fake is the
   failure mode of this strategy.
+- Since [ADR-0007](0007-one-ports-file.md) the unit lane carries one more load:
+  the caching policy lives in the use cases, so `test/unit/task.service.test.ts`
+  is the only thing preventing a command from being served a stale snapshot.
+  That block is not an ordinary test — it stands where a type used to.

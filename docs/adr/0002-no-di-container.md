@@ -23,9 +23,11 @@ No container. Three mechanisms replace it, all native:
 1. **App-level infrastructure** (config, PrismaClient) is provided by plugins
    that `decorate` the Fastify instance, typed once in
    `src/types/fastify.d.ts`. This _is_ Fastify's sanctioned DI mechanism.
-2. **Module wiring** is explicit code in the module's `index.ts`:
-   `createPrismaTaskRepository(fastify.prisma)` → `createTaskService({...})` →
-   `taskRoutes(service)`. Five lines, ordinary function calls.
+2. **Module wiring** is explicit code in the module's `index.ts`: build each
+   port implementation (`createPrismaTaskRepository(fastify.prisma)`,
+   `createRedisTaskCache(fastify.redis, ...)`), pass them to
+   `createTaskService({ repository, cache, clock })`, hand the service to
+   `taskRoutes(service)`. Under ten lines of ordinary function calls.
 3. **App wiring** is explicit registration order in `src/app.ts`.
 
 ## Why the container lost
@@ -40,7 +42,7 @@ No container. Three mechanisms replace it, all native:
   exactly the files where it should be routine.
 - **The generator requirement disappears.** The old Rule 0 ("never create
   modules by hand") existed because manual wiring across four files was too
-  error-prone to trust. When wiring is five explicit lines, hand-writing a
+  error-prone to trust. When wiring is a handful of explicit lines, hand-writing a
   module is safe, and scaffolding becomes a convenience rather than a safety
   device.
 - **Navigation works again.** "Find all references" on `createTaskService`

@@ -30,10 +30,12 @@ Two objections drove this change, both about where a reader has to look:
 
 ## Decision
 
-- **One `*.ports.ts` per module holds every abstract type it owns**, in three
-  labelled sections: outbound ports, the `<Name>Service` interface, and
-  `<Name>PublicApi` — the type sibling modules may use. Nothing else in the
-  module declares an interface.
+- **One `*.ports.ts` per module holds every abstract type it owns**, in a fixed
+  order: outbound ports, the `<Name>Service` interface, then `<Name>PublicApi`
+  — the type sibling modules may use — last. Nothing else in the module
+  declares an interface. The order is the only marker: module folders carry no
+  comments, so `<Name>PublicApi` is identified by its name and its position at
+  the foot of the file.
 - **Every port implementation is named `<module>.<technology>.repository.ts`**:
   `task.prisma.repository.ts`, `task.cache.repository.ts`,
   `user.s3.repository.ts`. One role suffix for the family, technology in the
@@ -47,12 +49,18 @@ Two objections drove this change, both about where a reader has to look:
   (`completeTask`) reads the repository directly and invalidates after the save.
   The `loadForUpdate` port method that existed only to keep the decorator honest
   is gone — the service distinguishes the two reads by which port it calls.
+- **The vocabulary follows the filename.** Renaming a role renames its port
+  type, its factory and the dependency key the service receives it under — not
+  just the file. `user.s3.repository.ts` exports `createS3AvatarRepository`
+  returning `AvatarRepository` into a dep called `avatars`; the test helper is
+  `in-memory-avatar-repository.ts`. A file renamed without its vocabulary is a
+  half-done rename, and this is the part no tool checks.
 - `modules-are-islands` now admits `*.ports.ts` across a module border.
 
 ## Consequences
 
-- **A module is four files of behavior and one of types.** "Where is this
-  declared" has a single answer per module.
+- **One file answers "where is this declared".** A module's types are all in
+  `*.ports.ts`; everything else in the folder is behavior.
 - **The caching policy is readable in the use case that owns it**, and tested
   with the use cases (`test/unit/task.service.test.ts`) rather than in a
   decorator test of its own. Turning caching off means passing a different

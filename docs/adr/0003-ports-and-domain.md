@@ -4,7 +4,10 @@
 
 Accepted, amended by [ADR-0007](0007-one-ports-file.md): every abstract type a
 module owns now lives in one `*.ports.ts`, and implementations are named
-`<module>.<technology>.repository.ts`. What a port _is_ is unchanged.
+`<module>.<technology>.repository.ts`. What a port _is_ is unchanged — read
+"adapter" below as "port implementation", and `task.repository.ts` as the ports
+section of `task.ports.ts`. The four methods named in the Decision are still
+exactly `TaskRepository`.
 
 ## Context
 
