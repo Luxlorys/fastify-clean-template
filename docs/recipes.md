@@ -60,13 +60,15 @@ fastify.post("/", {
 }, handler);
 ```
 
-The 401 flows through the same error-handler as everything else. Sign tokens
-in an `auth` module's service (`fastify.jwt.sign(...)` passed in as a
-`TokenSigner` port if you want the service unit-testable).
+The 401 flows through the same error-handler as everything else. Sign tokens in
+an `auth` module's service. To keep that service unit-testable, `fastify.jwt` is
+an outbound dependency like any other: declare `TokenSigner` in the ports
+section of `auth.ports.ts`, implement it in `auth.jwt.repository.ts`, and wire
+it in `auth/index.ts` — the same three pieces as S3 and Redis below.
 
 ---
 
-## 2. An outbound adapter (object storage, mail, payments…)
+## 2. An outbound port implementation (object storage, mail, payments…)
 
 This one lives in the code — the avatar upload in `modules/user` is the full
 reference: **port in the consumer's vocabulary, the implementation owns the
@@ -90,8 +92,10 @@ SDK, the plugin owns the client lifecycle.**
   needed).
 
 To add another technology (a mail sender, a payment client), copy that
-five-piece shape with a new file (`user.ses.repository.ts`) and its
-dependency-cruiser pair. Presigned URLs, when needed, are one more port method
+six-piece shape with a new file (`user.ses.repository.ts`) and its
+dependency-cruiser pair. The port type, the factory and the dependency key
+follow the filename: `MailRepository`, `createSesMailRepository`, `mail` — a
+file renamed without its vocabulary is a half-done rename. Presigned URLs, when needed, are one more port method
 (`signedReadUrl`) implemented in `user.s3.repository.ts` with
 `@aws-sdk/s3-request-presigner`.
 
@@ -103,22 +107,19 @@ Also in the code — read `modules/task`. Caching is exactly the
 plugin/port/implementation shape above, with the cache as a **sibling of the
 repository, never a wrapper around it**:
 
-| Piece              | File                                  | Owns                                                                                                                                                                                                                    |
-| ------------------ | ------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Plugin**         | `src/plugins/redis.ts`                | The client lifecycle only. `lazyConnect` so boot does not depend on Redis; `maxRetriesPerRequest: 1` so an outage costs one failure, not twenty retries; an `error` listener because an unhandled one is fatal in Node. |
-| **Port**           | `modules/task/task.ports.ts`          | `TaskCache.read/write/forget` — the module's words. No `get`, `set` or `expire`.                                                                                                                                        |
-| **Implementation** | `modules/task/task.cache.repository.ts` | Key layout (`task:v1:<id>`), the TTL, the JSON codec with Date revival, and the failure policy. The only file importing `ioredis`.                                                                                    |
-| **Policy**         | `modules/task/task.service.ts`        | Which use case may read a snapshot and which must not, and where invalidation happens. Holds both ports; imports no SDK.                                                                                                |
+| Piece              | File                                    | Owns                                                                                                                                                                                                                    |
+| ------------------ | --------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Plugin**         | `src/plugins/redis.ts`                  | The client lifecycle only. `lazyConnect` so boot does not depend on Redis; `maxRetriesPerRequest: 1` so an outage costs one failure, not twenty retries; an `error` listener because an unhandled one is fatal in Node. |
+| **Port**           | `modules/task/task.ports.ts`            | `TaskCache.read/write/forget` — the module's words. No `get`, `set` or `expire`.                                                                                                                                        |
+| **Implementation** | `modules/task/task.cache.repository.ts` | Key layout (`task:v1:<id>`), the TTL, the JSON codec with Date revival, and the failure policy. The only file importing `ioredis`.                                                                                      |
+| **Policy**         | `modules/task/task.service.ts`          | Which use case may read a snapshot and which must not, and where invalidation happens. Holds both ports; imports no SDK.                                                                                                |
 
 `index.ts` picks the two implementations and hands both to the service:
 
 ```ts
 const repository = createPrismaTaskRepository(fastify.prisma);
 
-const cache = createRedisTaskCache(
-    fastify.redis,
-    fastify.config.CACHE_TTL_SECONDS,
-);
+const cache = createRedisTaskCache(fastify.redis, fastify.config.CACHE_TTL_SECONDS);
 
 const service = createTaskService({ repository, cache, clock: systemClock });
 ```
@@ -133,15 +134,15 @@ Six rules that carry the design:
   helper that saves and then calls `cache.forget()`. The failure mode of
   hand-rolled caching is always a write that busts nothing; giving the module
   one function that does both makes it hard to forget.
-- **Never cache the read a write is derived from.** The service reads twice as
-  many ways as it has reads: `getTask` (a query — cache first, repository on a
-  miss) and the private `loadForUpdate` (a command's read — always
-  `repository.findById`). Use cases that read, apply a domain rule and then
-  `save` must use the second. Busting on write is not enough on its own: a
-  reader that missed
-  can write its now-obsolete row into the cache _after_ a concurrent `save` has
-  already called `forget`, and that entry then lives out the full TTL. A command
-  reading it would judge its rules against a state that no longer exists —
+- **Never cache the read a write is derived from.** The service has two ways to
+  read one task: `getTask` (a query — `cache.read` first, `repository.findById`
+  on a miss) and the private `loadForUpdate` helper (a command's read — always
+  `repository.findById`, never the cache). Use cases that read, apply a domain
+  rule and then `save` must use the second. Busting on write is not enough on
+  its own: a reader that missed can write its now-obsolete row into the cache
+  _after_ a concurrent `save` has already called `forget`, and that entry then
+  lives out the full TTL. A command reading it would judge its rules against a
+  state that no longer exists —
   completing a task archived minutes ago — and then save the stale entity back,
   reverting every field it never saw change. A stale query is a cache working;
   a stale command is data loss. Regression tests live in
@@ -227,19 +228,22 @@ Each port method is atomic today. When one use case must commit several writes
 together, give the _port_ a transactional method rather than leaking an ORM
 transaction into the service:
 
+In the ports section of `task.ports.ts`, the port grows a use-case-shaped
+atomic operation:
+
 ```ts
-// the port grows a use-case-shaped atomic operation
 export type TaskRepository = {
     ...
     completeAndLog: (task: Task, entry: NewAuditEntry) => Promise<Task>;
 };
 ```
 
-The adapter implements it with `prisma.$transaction` internally. If genuinely
-cross-repository workflows appear, introduce a `UnitOfWork` port
-(`withTransaction(fn)`) whose adapter passes Prisma's transaction client to
-repository factories — the service still sees only ports. Prefer the first
-form until the second is undeniable.
+`task.prisma.repository.ts` implements it with `prisma.$transaction`
+internally, and the in-memory implementation in `test/helpers/` grows the same
+method. If genuinely cross-repository workflows appear, introduce a `UnitOfWork`
+port (`withTransaction(fn)`) whose implementation passes Prisma's transaction
+client to repository factories — the service still sees only ports. Prefer the
+first form until the second is undeniable.
 
 ---
 
@@ -253,12 +257,13 @@ template's best rule, unchanged in spirit:
 2. Validate at the edge: the schema is part of the request body schema, so no
    unvalidated value can reach the service.
 3. Type the column for Prisma (`prisma-json-types-generator`, pinned to the
-   major matching your Prisma) so the adapter's rows come back typed instead
-   of `JsonValue` — and map them into the domain type in `toX()` like any
-   other field.
+   major matching your Prisma) so the rows in `*.prisma.repository.ts` come
+   back typed instead of `JsonValue` — and map them into the domain type in
+   `toX()` like any other field.
 
-The adapter's mapper is the natural checkpoint: nothing enters or leaves the
-row unparsed.
+That `toX()` mapper is the natural checkpoint: nothing enters or leaves the row
+unparsed. A cached entity needs the same treatment on its own side — see the
+`parseTask` revival step in `task.cache.repository.ts`.
 
 ---
 

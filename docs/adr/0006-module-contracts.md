@@ -58,12 +58,12 @@ of the enforcement that made the "islands" rule worth having.
 Two additional problems were structural rather than accidental. `*.ports.ts`
 covered two different jobs — inverting an outbound infrastructure dependency
 (`AvatarStorage`, since renamed `AvatarRepository`: three real implementations,
-inversion mandatory) and naming a
-peer module's capability (`UserOnboarder`: one implementation, forever). And
+inversion mandatory) and naming a peer module's capability (`UserOnboarder`:
+one implementation, forever). And
 the mainstream modular-monolith practice this template drew on (Spring
 Modulith's exposed API packages, NestJS `exports`/`imports`, Simon Brown's
 package-by-component) all publish the contract from the **provider** side; the
-consumer-owned form belongs to dependency *inversion*, which the peer case is
+consumer-owned form belongs to dependency _inversion_, which the peer case is
 not.
 
 ## Decision
@@ -89,14 +89,19 @@ not.
 
 - **The service-locator hole becomes a compile error.** The health-module probe
   above now fails with `Property 'getUser' does not exist on type
-  'UserPublicApi'`. The reachable surface of a decoration is exactly its
+'UserPublicApi'`. The reachable surface of a decoration is exactly its
   contract.
 - **One definition, N consumers.** No per-consumer copies to keep aligned, and
   `find all references` on a contract type lists every consumer.
 - **Cross-module dependencies are import edges again**, so dependency-cruiser
-  polices them. Verified: importing `user.service.ts` from `onboarding` fails
-  `modules-are-islands`; importing `user.contract.ts` passes; a contract
-  importing its own entity or Fastify fails `contract-is-types-only`.
+  polices them. Verified at the time: importing `user.service.ts` from
+  `onboarding` failed `modules-are-islands`; importing `user.contract.ts`
+  passed; a contract importing its own entity or Fastify failed
+  `contract-is-types-only`.
+  **Since [ADR-0007](0007-one-ports-file.md):** the first still holds against
+  `user.ports.ts`; `contract-is-types-only` no longer exists, so keeping
+  entities out of the published section is a convention. This is the one
+  enforcement this ADR bought that the later one gave back.
 - **The interface is wider than one consumer needs.** A contract is a role
   interface for a capability, not for a caller — a consumer using one of three
   published methods sees all three. This is the deliberate trade: slightly less
