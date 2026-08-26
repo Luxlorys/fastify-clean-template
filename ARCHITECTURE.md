@@ -443,6 +443,13 @@ ADR in [docs/adr/](docs/adr/).
   integration lane; auth, transactions and typed JSON columns remain
   documented patterns in [docs/recipes.md](docs/recipes.md) until a project
   needs them. Never keep an SDK that no test exercises.
+- **No shared integration services in `lib/`** (ADR-0009). `lib/` holds
+  stateless SDK mechanics importable only by port implementations; a
+  third-party integration that owns behavior or state — retry, dedup, queues,
+  suppression — is a capability module publishing a `*PublicApi`, like any
+  other. The tests: does it hold policy or state, could it need another
+  module's data, could it grow a webhook route or a table? Any "yes" means a
+  module.
 - **No pagination-free lists.** Every list endpoint is cursor-paginated from
   day one (`lib/pagination.ts`).
 - **No unit-of-work abstraction.** Each repository method is atomic; when one

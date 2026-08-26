@@ -14,6 +14,7 @@ changed, supersede the ADR; don't quietly drift.
 | [0006](0006-module-contracts.md)                | Published module contracts instead of consumer-owned ports          | amended by 0007             |
 | [0007](0007-one-ports-file.md)                  | One `*.ports.ts` per module; implementations named by technology    | accepted                    |
 | [0008](0008-dto-at-the-application-boundary.md) | One DTO per module, at the application boundary                     | accepted                    |
+| [0009](0009-third-party-integrations.md)        | Pure mechanics in `lib/`; integrations with behavior are modules    | accepted                    |
 
 An amended ADR keeps its original text: the Decision is what was decided then,
 and the `## Status` block at the top says what has changed since. Never rewrite

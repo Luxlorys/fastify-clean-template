@@ -99,6 +99,14 @@ file renamed without its vocabulary is a half-done rename. Presigned URLs, when 
 (`signedReadUrl`) implemented in `user.s3.repository.ts` with
 `@aws-sdk/s3-request-presigner`.
 
+This recipe covers an integration **one module consumes**. When the same
+SDK mechanics repeat across modules with no policy attached, share a pure
+helper in `lib/` that only `*.<technology>.repository.ts` files may import.
+The moment an integration owns behavior or state — retry, dedup, a queue,
+suppression, webhooks — it is a capability, and it becomes a module of its
+own publishing a `*PublicApi` (recipe 3). The decision rule is
+[ADR-0009](adr/0009-third-party-integrations.md).
+
 ---
 
 ## 2b. Caching an entity (Redis)
