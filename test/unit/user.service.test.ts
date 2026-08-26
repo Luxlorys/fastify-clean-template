@@ -7,7 +7,7 @@ import {
     UserNotFoundError,
 } from "@/modules/user/user.errors.js";
 import { fixedClock } from "../helpers/fixed-clock.js";
-import { createInMemoryAvatarStorage } from "../helpers/in-memory-avatar-storage.js";
+import { createInMemoryAvatarRepository } from "../helpers/in-memory-avatar-repository.js";
 import { createInMemoryUserRepository } from "../helpers/in-memory-user-repository.js";
 
 const NOW = "2026-08-21T12:00:00Z";
@@ -15,10 +15,10 @@ const NOW = "2026-08-21T12:00:00Z";
 const makeService = () => {
     const clock = fixedClock(NOW);
     const repository = createInMemoryUserRepository(clock);
-    const storage = createInMemoryAvatarStorage();
-    const service = createUserService({ repository, storage, clock });
+    const avatars = createInMemoryAvatarRepository();
+    const service = createUserService({ repository, avatars, clock });
 
-    return { service, repository, storage };
+    return { service, repository, avatars };
 };
 
 describe("createUser", () => {
@@ -87,7 +87,7 @@ describe("markOnboarded", () => {
 
 describe("setAvatar", () => {
     it("uploads through the storage port and persists the returned key", async () => {
-        const { service, repository, storage } = makeService();
+        const { service, repository, avatars } = makeService();
         const created = await service.createUser({
             email: "andrei@example.com",
             name: "Andrei",
@@ -102,14 +102,14 @@ describe("setAvatar", () => {
         expect(updated.avatarKey).toMatch(new RegExp(`^avatars/${created.id}/`));
         expect(repository.rows()[0]?.avatarKey).toBe(updated.avatarKey);
 
-        const stored = storage.objects().get(updated.avatarKey ?? "");
+        const stored = avatars.objects().get(updated.avatarKey ?? "");
 
         expect(stored?.contentType).toBe("image/png");
         expect(stored?.body.toString()).toBe("fake-png-bytes");
     });
 
     it("rejects an empty upload before touching storage", async () => {
-        const { service, storage } = makeService();
+        const { service, avatars } = makeService();
         const created = await service.createUser({
             email: "andrei@example.com",
             name: "Andrei",
@@ -123,7 +123,7 @@ describe("setAvatar", () => {
             }),
         ).rejects.toBeInstanceOf(EmptyAvatarError);
 
-        expect(storage.objects().size).toBe(0);
+        expect(avatars.objects().size).toBe(0);
     });
 
     it("throws UserNotFoundError for an unknown user", async () => {

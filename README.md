@@ -42,10 +42,10 @@ npm run test:int    # integration tests — needs Docker, nothing else
 ```
 src/
 ├── config.ts                  # env → typed AppConfig (Zod, fails fast)
-├── app.ts                     # composition root: plugins + modules, in order
+├── app.ts                     # composition root: plugins/ autoloaded, modules in order
 ├── server.ts                  # entrypoint: load env, build, listen, graceful close
 ├── lib/                       # shared, framework-free first: errors, clock, pagination
-├── plugins/                   # infrastructure: database, error-handler, security, swagger
+├── plugins/                   # infrastructure: autoloaded by app.ts — a file here is registered
 ├── modules/                   # one folder per domain capability — see below
 │   ├── health/                # smallest possible module: one file
 │   ├── task/                  # the reference module (publishes taskService)
@@ -59,12 +59,13 @@ point downward — enforced by `npm run boundaries`:
 
 ```
 modules/task/
-├── index.ts                   # composition root: wires adapter → service → routes
+├── index.ts                   # composition root: implementations → service → routes
 ├── task.routes.ts             # HTTP: schemas on routes, thin inline handlers
 ├── task.schema.ts             # the wire contract + domain→wire mapping
-├── task.service.ts            # use cases (no fastify, no zod, no prisma)
-├── task.repository.ts         # the PORT: narrow interface in domain vocabulary
-├── task.repository.prisma.ts  # the ADAPTER: the only file that speaks Prisma
+├── task.ports.ts              # EVERY abstract type: ports, service, public API
+├── task.service.ts            # use cases (no fastify, no zod, no prisma, no redis)
+├── task.prisma.repository.ts  # implements TaskRepository — the only file with Prisma
+├── task.cache.repository.ts   # implements TaskCache — the only file with ioredis
 ├── task.entity.ts             # domain types + business rules, pure TypeScript
 └── task.errors.ts             # the module's named errors (no status codes)
 ```
@@ -73,7 +74,7 @@ Read [ARCHITECTURE.md](./ARCHITECTURE.md) for the full design and the
 reasoning; [docs/adr/](./docs/adr/) for why each decision was made over its
 alternatives; [docs/recipes.md](./docs/recipes.md) for the patterns the
 template deliberately ships as documentation instead of dead code (auth,
-S3-style adapters, transactions, typed JSON columns).
+transactions, typed JSON columns).
 
 ## Tests
 
@@ -81,7 +82,8 @@ S3-style adapters, transactions, typed JSON columns).
 | -------------------- | ------------------- | -------------------------------------------- | ------- |
 | Unit: domain rules   | `npm run test:unit` | entities directly                            | nothing |
 | Unit: use cases      | `npm run test:unit` | in-memory port implementations + fixed clock | nothing |
-| Integration: adapter | `npm run test:int`  | real PostgreSQL                              | Docker  |
+| Unit: caching policy | `npm run test:unit` | in-memory repository + in-memory cache       | nothing |
+| Integration: ports   | `npm run test:int`  | real PostgreSQL, Redis, S3 (MinIO)           | Docker  |
 | Integration: HTTP    | `npm run test:int`  | the real app via `app.inject()`              | Docker  |
 
 The integration lane boots one throwaway Postgres per run, migrates a template

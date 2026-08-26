@@ -2,7 +2,13 @@
 
 ## Status
 
-Accepted. Amends [ADR-0001](0001-vertical-modules.md) (which introduced
+Accepted, amended by [ADR-0007](0007-one-ports-file.md): the published contract
+still exists and still types the decoration, but it now lives as the
+`<Name>PublicApi` section of the module's `*.ports.ts` rather than in its own
+`*.contract.ts`, and the `contract-is-types-only` rule is gone with it. Read the
+decision below as being about the type, not the file.
+
+Amends [ADR-0001](0001-vertical-modules.md) (which introduced
 "modules are islands") and [ADR-0003](0003-ports-and-domain.md) (which defined
 what a port is for).
 
@@ -51,7 +57,8 @@ of the enforcement that made the "islands" rule worth having.
 
 Two additional problems were structural rather than accidental. `*.ports.ts`
 covered two different jobs — inverting an outbound infrastructure dependency
-(`AvatarStorage`: three real implementations, inversion mandatory) and naming a
+(`AvatarStorage`, since renamed `AvatarRepository`: three real implementations,
+inversion mandatory) and naming a
 peer module's capability (`UserOnboarder`: one implementation, forever). And
 the mainstream modular-monolith practice this template drew on (Spring
 Modulith's exposed API packages, NestJS `exports`/`imports`, Simon Brown's

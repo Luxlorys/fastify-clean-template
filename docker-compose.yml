@@ -1,4 +1,4 @@
-# Default: only Postgres runs in Docker; the app runs on the host with
+# Default: Postgres and Redis run in Docker; the app runs on the host with
 # `npm run dev` (fast reloads, no container rebuild, migrations point at
 # localhost with no host switching).
 #
@@ -22,6 +22,17 @@ services:
             timeout: 3s
             retries: 10
 
+    redis:
+        image: redis:8-alpine
+        command: ["redis-server", "--save", "", "--appendonly", "no"]
+        ports:
+            - "6379:6379"
+        healthcheck:
+            test: ["CMD", "redis-cli", "ping"]
+            interval: 5s
+            timeout: 3s
+            retries: 10
+
     api:
         profiles: ["full"]
         build:
@@ -31,11 +42,14 @@ services:
         environment:
             NODE_ENV: production
             DATABASE_URL: postgresql://postgres:postgres@postgres:5432/app
+            REDIS_URL: redis://redis:6379
             PORT: 3000
         ports:
             - "3000:3000"
         depends_on:
             postgres:
+                condition: service_healthy
+            redis:
                 condition: service_healthy
 
 volumes:

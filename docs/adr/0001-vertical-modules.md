@@ -17,7 +17,8 @@ other way: group by feature, not by technical role.
 
 One folder per feature under `src/modules/`, with the clean-architecture
 layers **inside** the module as file-role conventions (`*.entity.ts`,
-`*.service.ts`, `*.repository.ts`, `*.repository.prisma.ts`, `*.routes.ts`).
+`*.ports.ts`, `*.service.ts`, `*.prisma.repository.ts`, `*.routes.ts` — see
+[ADR-0007](0007-one-ports-file.md) for the current names).
 The dependency rule between the roles is identical to the horizontal version
 and enforced by dependency-cruiser; only the folder geometry differs.
 

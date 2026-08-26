@@ -3,7 +3,7 @@ import {
     onboardingResultResponseSchema,
 } from "./onboarding.schema.js";
 import { errorResponseSchema } from "@/lib/schemas.js";
-import type { OnboardingService } from "./onboarding.service.js";
+import type { OnboardingService } from "./onboarding.ports.js";
 import type { FastifyPluginAsyncZod } from "fastify-type-provider-zod";
 
 const ONBOARDING_TAG = "onboarding";

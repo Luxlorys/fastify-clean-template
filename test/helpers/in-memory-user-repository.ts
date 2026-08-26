@@ -2,11 +2,11 @@ import { systemClock } from "@/lib/clock.js";
 import { EmailTakenError } from "@/modules/user/user.errors.js";
 import type { Clock } from "@/lib/clock.js";
 import type { User } from "@/modules/user/user.entity.js";
-import type { UserRepository } from "@/modules/user/user.repository.js";
+import type { UserRepository } from "@/modules/user/user.ports.js";
 
 /**
  * Genuine implementation of the UserRepository port. It honors the same
- * contract the Prisma adapter honors — including rejecting duplicate emails
+ * contract the Prisma implementation honors — including rejecting duplicate emails
  * with EmailTakenError, mirroring the unique constraint.
  */
 export const createInMemoryUserRepository = (

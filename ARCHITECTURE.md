@@ -21,10 +21,11 @@ modules/task/
 ├── index.ts                   composition root
 ├── task.routes.ts   ┐
 ├── task.schema.ts   ┘         interface layer (Fastify + Zod)
-├── task.service.ts            application layer (use cases)
-├── task.contract.ts           public API — the only file other modules import
-├── task.repository.ts         port
-├── task.repository.prisma.ts  adapter (Prisma)
+├── task.ports.ts              EVERY abstract type: outbound ports, the service
+│                              interface, and the public API siblings import
+├── task.service.ts            application layer (implements TaskService)
+├── task.prisma.repository.ts  implements TaskRepository (Prisma)
+├── task.cache.repository.ts   implements TaskCache (Redis)
 ├── task.entity.ts   ┐
 └── task.errors.ts   ┘         domain (pure TypeScript)
 ```
@@ -38,23 +39,29 @@ flowchart TD
             SCH["task.schema.ts<br/>wire contract + mapping"]
         end
         SVC["task.service.ts<br/>use cases"]
-        PORT["task.repository.ts<br/>(port — types only)"]
+        PORT["task.ports.ts<br/>(all abstract types)"]
         subgraph domain["domain"]
             E["task.entity.ts<br/>rules as pure functions"]
             ERR["task.errors.ts"]
         end
-        ADP["task.repository.prisma.ts<br/>(adapter)"]
+        DB["task.prisma.repository.ts"]
+        CACHE["task.cache.repository.ts"]
     end
     PRISMA[("src/generated/prisma")]
+    REDIS[("ioredis")]
     APP["src/app.ts"] --> IDX
     IDX --> R
-    IDX --> ADP
+    IDX --> DB
+    IDX --> CACHE
     R --> SCH
     R --> SVC
     SVC --> PORT
     SVC --> E
-    ADP -. implements .-> PORT
-    ADP --> PRISMA
+    SVC -. implements .-> PORT
+    DB -. implements .-> PORT
+    CACHE -. implements .-> PORT
+    DB --> PRISMA
+    CACHE --> REDIS
     SCH --> E
     E --> ERR
 ```
@@ -64,106 +71,174 @@ flowchart TD
 Dependencies point downward only. Per file-role (matched by filename, checked
 by dependency-cruiser):
 
-| Layer (file)                       | May import                                               | Must never import                                                 |
-| ---------------------------------- | -------------------------------------------------------- | ----------------------------------------------------------------- |
-| `*.entity.ts`, `*.errors.ts`       | each other, `lib/errors`, `lib/clock`, `lib/pagination`  | **anything else** — no npm package, no Fastify, no Zod, no Prisma |
-| `*.repository.ts` (port)           | domain files, pure lib                                   | frameworks, adapters, services                                    |
-| `*.ports.ts` (outbound ports)      | domain files, pure lib                                   | frameworks, adapters, services                                    |
-| `*.contract.ts` (public API)       | **pure lib only**                                        | **its own entities**, frameworks, everything else                 |
-| `*.service.ts`                     | domain, its ports, other modules' contracts, other services in its module, pure lib | Fastify, Zod, Prisma, adapters, routes, schemas, plugins |
-| `*.repository.prisma.ts` (adapter) | domain, its port, `src/generated/prisma`, pure lib       | Fastify, services, routes, schemas                                |
-| `*.storage.s3.ts` (adapter)        | domain, its ports, `@aws-sdk/*`, node builtins, pure lib | Fastify, Prisma, services, routes, schemas                        |
-| `*.routes.ts`, `*.schema.ts`       | everything in the module except the adapter; `lib`       | Prisma, other modules                                             |
-| `index.ts`                         | everything in its module                                 | other modules' internals                                          |
+| Layer (file)                         | May import                                                                          | Must never import                                                 |
+| ------------------------------------ | ----------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
+| `*.entity.ts`, `*.errors.ts`      | each other, `lib/errors`, `lib/clock`, `lib/pagination`                             | **anything else** — no npm package, no Fastify, no Zod, no Prisma |
+| `*.ports.ts` (all abstract types) | domain files, other modules' `*.ports.ts`, pure lib                                 | frameworks, SDKs, implementations, services                       |
+| `*.service.ts`                    | domain, its ports, other modules' ports, other services in its module, pure lib     | Fastify, Zod, Prisma, ioredis, implementations, routes, schemas   |
+| `*.prisma.repository.ts`          | domain, its ports, `src/generated/prisma`, pure lib                                 | Fastify, services, routes, schemas, other implementations         |
+| `*.cache.repository.ts`           | domain, its ports, `ioredis`, pure lib                                              | Fastify, Prisma, services, routes, schemas, other implementations |
+| `*.s3.repository.ts`              | domain, its ports, `@aws-sdk/*`, node builtins, pure lib                            | Fastify, Prisma, services, routes, schemas, other implementations |
+| `*.routes.ts`, `*.schema.ts`      | everything in the module except an implementation; `lib`                            | Prisma, other modules                                             |
+| `index.ts`                        | everything in its module                                                            | other modules' internals                                          |
 
 Cross-cutting rules, also enforced:
 
 - **Modules are islands with one door.** A module may import exactly one file
-  from another module: its `*.contract.ts`. Everything else in that folder —
-  entity, service type, ports, adapters — is private. Shared *code* still moves
-  to `lib/`; a contract shares only a type.
-- **Prisma appears in exactly three places**: `*.repository.prisma.ts`
-  adapters, `src/plugins/database.ts` (lifecycle), and the type augmentation.
+  from another module: its `*.ports.ts`, and from it only the published
+  `*PublicApi` type. Everything else in that folder — entity, errors, service,
+  implementations — is private. Shared _code_ still moves to `lib/`.
+- **Prisma appears in exactly three places**: `*.prisma.repository.ts`,
+  `src/plugins/database.ts` (lifecycle), and the type augmentation.
   Tests are exempt — factories seed through Prisma deliberately.
-- **The AWS SDK appears in exactly three places** — same shape: `*.storage.s3.ts`
-  adapters, `src/plugins/s3.ts` (lifecycle), the type augmentation; tests exempt.
-- **Adapters are instantiated only in a composition root** (`index.ts`).
-  Everything else programs against the port.
+- **The AWS SDK appears in exactly three places** — same shape:
+  `*.s3.repository.ts`, `src/plugins/s3.ts` (lifecycle), the type
+  augmentation; tests exempt.
+- **ioredis appears in exactly three places** — same shape again:
+  `*.cache.repository.ts`, `src/plugins/redis.ts` (lifecycle), the type
+  augmentation; tests exempt.
+- **Implementations are instantiated only in a composition root** (`index.ts`),
+  and never import each other. Everything else programs against the port.
 - `lib/` imports nothing above itself; `plugins/` never import modules.
 
 ### The composition roots
 
 `src/app.ts` composes the application: infrastructure plugins first, then
-modules with their mount prefixes, in an order you read top to bottom. Each
-module's `index.ts` composes the module: adapter → service → routes. These are
-the only places that know which concrete implementation is used — swapping
-PostgreSQL for something else is a new adapter file plus one changed line in
-`index.ts`.
+modules with their mount prefixes, in an order you read top to bottom. The
+plugins arrive by directory — `@fastify/autoload` over `src/plugins/`, so
+dropping a file in registers it — because they are interchangeable: each is
+`fastify-plugin`-wrapped, reads only `app.config`, and decorates the instance.
+Autoload's order is alphabetical unless a plugin names what it needs in its
+`dependencies` metadata, which hoists it (see `plugins/swagger.ts`); an
+ordering requirement lives in the plugin that has it, not in this file. Modules
+stay listed by hand: their order is load-bearing and their prefixes belong in
+the composition root. Each
+module's `index.ts` composes the module: implementations → service → routes.
+These are the only places that know which concrete implementation is used —
+swapping PostgreSQL for something else is a new
+`<module>.<technology>.repository.ts` plus one changed line in `index.ts`.
 
 ### Publishers and consumers (cross-module use)
 
 Capabilities flow between modules as **runtime values on the Fastify instance**,
-typed by a **contract the providing module publishes**:
+typed by a **public API the providing module publishes at the bottom of its
+`*.ports.ts`**:
 
-- A **publisher** module (`modules/user`, `modules/task`) writes a
-  `*.contract.ts` — a pure type over ids and plain inputs, naming only the
+- A **publisher** module (`modules/user`, `modules/task`) declares a
+  `*PublicApi` type — pure data over ids and plain inputs, naming only the
   capabilities it offers — and decorates the instance with its service
   (`fastify.decorate("userService", service)`). The full service satisfies the
-  narrower contract structurally, so the decoration compiles unchanged.
+  narrower type structurally, so the decoration compiles unchanged.
   Publishing changes the module's shape: it is wrapped in `fastify-plugin` so
   the decoration escapes encapsulation, and it therefore mounts its own route
   prefix internally.
-- `src/types/fastify.d.ts` types each decoration as **the contract, not the
-  service**. That is what makes the boundary real rather than advisory:
+- `src/types/fastify.d.ts` types each decoration as **the published API, not
+  the service**. That is what makes the boundary real rather than advisory:
   `fastify.userService.setAvatar(...)` from an unrelated module is a compile
   error (`Property 'setAvatar' does not exist on type 'UserPublicApi'`), not a
   violation that no tool can see.
-- A **consumer** module (`modules/onboarding`) imports those contract types
-  directly and wires `fastify.userService` into its service in `index.ts`. The
-  import is a real edge, so dependency-cruiser polices it; `find all references`
-  on a contract finds every consumer.
+- A **consumer** module (`modules/onboarding`) imports those types directly
+  from the publishers' `*.ports.ts` and wires `fastify.userService` into its
+  service in `index.ts`. The import is a real edge, so dependency-cruiser
+  polices it; `find all references` on a published type finds every consumer.
 - `app.ts` registers publishers before consumers; entities never cross the
-  boundary — the contract only admits ids and plain inputs.
+  boundary — the published API only admits ids and plain inputs.
 
-**Ports and contracts are not the same thing** and must not be merged:
+**`*.ports.ts` carries two jobs**, and the file keeps them in separate,
+labelled sections:
 
-| | `*.ports.ts` | `*.contract.ts` |
-| --- | --- | --- |
-| Direction | what the module **needs** | what the module **offers** |
-| Purpose | invert an outbound infrastructure dependency (S3, cache, mail) | publish a capability to sibling modules |
-| Implementations | several, deliberately (real, in-memory, …) | one, forever |
-| May import | domain + pure lib | pure lib only |
+|                 | Ports section                                                  | Public API section                      |
+| --------------- | -------------------------------------------------------------- | --------------------------------------- |
+| Direction       | what the module **needs**                                      | what the module **offers**              |
+| Purpose         | invert an outbound infrastructure dependency (S3, cache, mail) | publish a capability to sibling modules |
+| Implementations | several, deliberately (real, in-memory, …)                     | one, forever                            |
+| Admits          | the module's own entities                                      | **ids and plain data only**             |
 
-A capability another module owns is a contract, never a port. The rules enforce
-this: `port-is-types-only` does not permit a port to import a contract.
+One consequence is worth stating plainly: because both live in one file,
+`modules-are-islands` can police **which file** crosses a module border but not
+**which type inside it**. "A sibling imports the public API and nothing else"
+is a convention here, not an enforced rule. Keeping entities out of the public
+API section is likewise by hand. If either starts to leak, split the public API
+back into its own `*.contract.ts` and give it its own dependency-cruiser rule.
+
+A capability another module owns still belongs in the public API section, never
+in the ports section: never re-declare a sibling's signature as a port of your
+own.
 
 `modules/onboarding` is the live reference: one user action that spans three
-modules (mark user onboarded → create welcome task), importing two contract
-types and nothing else, unit-tested with five-line contract fakes.
+modules (mark user onboarded → create welcome task), importing two published
+API types and nothing else, unit-tested with five-line fakes of them.
 
-### Outbound infrastructure: plugin → port → adapter
+### Outbound infrastructure: plugin → port → implementation
 
 External systems (object storage, cache, mail, payments) always split into the
 same three pieces — the live reference is the avatar upload in `modules/user`:
 
-| Piece       | File                              | Owns                                                                                                                    |
-| ----------- | --------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| **Plugin**  | `src/plugins/s3.ts`               | The raw client's lifecycle only: create from config, `decorate("s3")`, destroy on close. No buckets, no logic.          |
-| **Port**    | `modules/user/user.ports.ts`      | _What_ the module needs, in its own vocabulary: `AvatarStorage.uploadAvatar(...)`. No SDK words.                        |
-| **Adapter** | `modules/user/user.storage.s3.ts` | _How_ that maps to the technology: bucket, key layout, `PutObjectCommand`. The only module file importing `@aws-sdk/*`. |
+| Piece              | File                                 | Owns                                                                                                                    |
+| ------------------ | ------------------------------------ | ----------------------------------------------------------------------------------------------------------------------- |
+| **Plugin**         | `src/plugins/s3.ts`                  | The raw client's lifecycle only: create from config, `decorate("s3")`, destroy on close. No buckets, no logic.          |
+| **Port**           | `modules/user/user.ports.ts`         | _What_ the module needs, in its own vocabulary: `AvatarRepository.uploadAvatar(...)`. No SDK words.                        |
+| **Implementation** | `modules/user/user.s3.repository.ts` | _How_ that maps to the technology: bucket, key layout, `PutObjectCommand`. The only module file importing `@aws-sdk/*`. |
 
-`index.ts` introduces them (`createS3AvatarStorage(fastify.s3, config.S3_AVATARS_BUCKET)`),
+Every port implementation is named `<module>.<technology>.repository.ts` — one
+role suffix for the whole family, technology in the middle. `index.ts`
+introduces them (`createS3AvatarRepository(fastify.s3, config.S3_AVATARS_BUCKET)`),
 the service consumes only the port, and unit tests substitute an in-memory
-`AvatarStorage` (`test/helpers/in-memory-avatar-storage.ts`).
+`AvatarRepository` (`test/helpers/in-memory-avatar-repository.ts`).
+
+**Caching is exactly the same three pieces** — the live reference is
+`modules/task`. `src/plugins/redis.ts` owns the client, `task.ports.ts`
+declares `TaskCache` in the module's vocabulary (`read` / `write` / `forget`,
+never `get`/`set`/`expire`), and `task.cache.repository.ts` owns the key
+layout, the TTL and the JSON codec.
+
+**The cache is a sibling of the repository, not a wrapper around it.** There is
+no middle file: `task.cache.repository.ts` talks to Redis and nothing else, and
+`task.service.ts` holds both ports and decides, use case by use case, which one
+to read. Turning caching off is swapping the implementation in `index.ts` for a
+no-op one. What the service must keep right:
+
+- **Queries may be cached; commands may not.** `getTask` reads the cache first
+  and falls back to the repository; `completeTask` and `archiveTask` read the
+  repository directly. A read-modify-write that starts from a cached entity is
+  not a staleness trade-off, it is a correctness bug: the domain rules get
+  evaluated against a state that no longer exists, and `save` then writes the
+  whole stale entity back over fields it never saw change. Note that busting on
+  write does **not** prevent this — a reader that missed can fill the cache
+  _after_ a concurrent `save` has already cleared it, so a stale entry can
+  outlive its own invalidation by a full TTL. This is the line every module
+  copying `modules/task` has to keep, and `test/unit/task.service.test.ts`
+  holds it.
+- **Invalidation lives on the write path.** Every save goes through one
+  `persist()` helper that calls `cache.forget`, so the classic failure — a
+  write that invalidates nothing — has one place to be got right instead of
+  one per use case.
+- **The service imports no SDK**, so the unit lane covers the whole caching
+  policy with two in-memory port implementations and no container.
+- **Lists are deliberately uncached.** Cursor-paginated, filtered results make
+  invalidation combinatorial for a poor hit rate. Cache entities by id.
+
+Two failure policies are decided in the implementation, not the port:
+
+- **A cache outage degrades to the source of truth.** `read` returns null,
+  `write` and `forget` are best effort — `task.cache.repository.ts` catches, the
+  service does not. A cache that can fail requests is a new single point of
+  failure, which is the opposite of the point.
+- **The TTL is the bound on a lost invalidation.** `forget` cannot be
+  guaranteed without an outbox, so `CACHE_TTL_SECONDS` is how stale the data
+  can get in the worst case. That is a deliberate ceiling, not an oversight.
+- **The key carries a version** (`task:v1:`). A cached blob outlives a deploy;
+  bump the version whenever the entity's shape changes and the old keys expire
+  unread. A blob that no longer parses is treated as a miss, never a 500.
 
 Two rules keep this honest:
 
-- **Purpose in the port, technology in the adapter.** A port method named
-  `uploadToAvatarsBucket` has already leaked S3 into the domain even with
-  clean imports; the port says `uploadAvatar`, the adapter knows about
-  buckets. The `.storage.s3.ts` suffix carries the tech instead.
-- **No dead SDKs.** The integration lane runs the real adapter against MinIO
-  (S3-compatible, started by Testcontainers in `test/int/setup/minio.ts`),
+- **Purpose in the port, technology in the implementation.** A port method
+  named `uploadToAvatarsBucket` has already leaked S3 into the domain even with
+  clean imports; the port says `uploadAvatar`, the implementation knows about
+  buckets. The `user.s3.repository.ts` filename carries the tech instead.
+- **No dead SDKs.** The integration lane runs the real implementation against
+  MinIO (S3-compatible, started by Testcontainers in `test/int/setup/minio.ts`),
   so the S3 path is exercised on every run with no AWS account — the same
   standard as the database.
 
@@ -241,29 +316,36 @@ Rules of thumb:
 
 ## 4. Tests
 
-| Suite           | Location                                      | Runs against                                  | Needs   |
-| --------------- | --------------------------------------------- | --------------------------------------------- | ------- |
-| Domain          | `test/unit/task.entity.test.ts`               | entity functions directly                     | nothing |
-| Use cases       | `test/unit/task.service.test.ts`              | in-memory repository + fixed clock            | nothing |
-| DB adapter      | `test/int/task.repository.prisma.test.ts`     | real PostgreSQL                               | Docker  |
-| Storage adapter | `test/int/user.storage.s3.test.ts`            | real S3 API (MinIO)                           | Docker  |
-| HTTP            | `test/int/task.routes.test.ts`, `app.test.ts` | the real app via `inject()` + real PostgreSQL | Docker  |
+| Suite               | Location                                      | Runs against                                       | Needs   |
+| ------------------- | --------------------------------------------- | -------------------------------------------------- | ------- |
+| Domain              | `test/unit/task.entity.test.ts`               | entity functions directly                          | nothing |
+| Use cases + caching | `test/unit/task.service.test.ts`              | in-memory repository + in-memory cache + fixed clock | nothing |
+| DB implementation   | `test/int/task.prisma.repository.test.ts`     | real PostgreSQL                                    | Docker  |
+| S3 implementation   | `test/int/user.s3.repository.test.ts`         | real S3 API (MinIO)                                | Docker  |
+| Cache implementation | `test/int/task.cache.repository.test.ts`     | real Redis                                         | Docker  |
+| HTTP                | `test/int/task.routes.test.ts`, `app.test.ts` | the real app via `inject()` + real PostgreSQL      | Docker  |
+
+The caching policy has no test file of its own, because it has no file of its
+own: it lives in the use cases, so it is tested with them.
 
 Two design points carry the strategy:
 
-1. **The in-memory repository is a genuine implementation of the port, not a
-   mock** (`test/helpers/in-memory-task-repository.ts`). It honors the same
-   contract the Prisma adapter honors (ordering, cursor semantics), and the
-   adapter integration tests verify that contract against the real database.
-   Unit tests therefore exercise real code paths — there is no
-   mocking framework in this template at all.
+1. **The in-memory implementations are genuine implementations of the ports,
+   not mocks** (`test/helpers/in-memory-task-repository.ts`,
+   `in-memory-task-cache.ts`). Each honors the same contract its real twin
+   honors (ordering, cursor semantics; miss-is-null, write-replaces,
+   forget-removes), and the integration tests verify that contract against the
+   real database and the real Redis. Unit tests therefore exercise real code
+   paths — there is no mocking framework in this template at all.
 2. **Config is a value**, so `buildTestApp({ DOCS_PASSWORD: "secret" })` can
    exercise config-dependent behavior without touching `process.env`.
 
-The integration lane (`test/int/setup/`) boots one throwaway Postgres and one
-MinIO per run via Testcontainers, applies the migration SQL once to a template
-database, clones one database per Vitest worker, and TRUNCATEs between tests
-(workers share the MinIO bucket safely — avatar keys are unique per upload).
+The integration lane (`test/int/setup/`) boots one throwaway Postgres, one
+MinIO and one Redis per run via Testcontainers, applies the migration SQL once
+to a template database, clones one database per Vitest worker, and TRUNCATEs
+between tests (workers share the MinIO bucket safely — avatar keys are unique
+per upload — and each takes its own Redis logical database, FLUSHDB'd between
+tests).
 Write integration tests accordingly:
 
 - **Arrange with factories** (`test/int/factories/`), never with other tests.
@@ -282,9 +364,9 @@ ADR in [docs/adr/](docs/adr/).
   roots replaces Awilix: the object graph is compiler-checked, "find all
   references" works, and no generator is needed to keep wiring safe.
 - **No consumer-owned ports for peer modules** (ADR-0006). A capability another
-  module owns is published by that module as a `*.contract.ts` and imported
-  directly; re-declaring its signature per consumer costs duplication and buys
-  a rule no tool can enforce.
+  module owns is published by that module as a `*PublicApi` type in its
+  `*.ports.ts` and imported directly; re-declaring its signature per consumer
+  costs duplication and buys a rule no tool can enforce.
 - **No global horizontal layers** (ADR-0001). `use_cases/`-style top-level
   trees scale by layer; modules scale by feature. Deleting a feature is
   deleting a folder.
@@ -310,20 +392,21 @@ Work inside-out; the boundaries hold you to it (`npm run check`).
 
 1. **Domain** — `<name>.entity.ts` + `<name>.errors.ts`: types, rules, named
    errors. Unit-test them directly.
-2. **Port** — `<name>.repository.ts`: the narrowest interface the use cases
-   need, in domain vocabulary. If the feature also offers something to other
-   modules, add `<name>.contract.ts` — ids and plain inputs only — and type the
-   decoration with it in `src/types/fastify.d.ts`.
-3. **Service** — `<name>.service.ts`: use cases against the port + clock.
-   Unit-test with an in-memory port implementation.
+2. **Ports** — `<name>.ports.ts`: every abstract type the feature owns, in
+   three labelled sections — the outbound ports (narrowest interface the use
+   cases need, in domain vocabulary), the `<Name>Service` interface, and, if
+   the feature offers something to other modules, `<Name>PublicApi` over ids
+   and plain inputs (type the decoration with it in `src/types/fastify.d.ts`).
+3. **Service** — `<name>.service.ts`: use cases against the ports + clock.
+   Unit-test with in-memory port implementations.
 4. **Schema** — `schema.prisma` model + `npm run prisma:migrate:create`
-   (review the SQL) + `apply`; then the adapter
-   `<name>.repository.prisma.ts` with its `toX()` mapper, and an integration
+   (review the SQL) + `apply`; then the implementation
+   `<name>.prisma.repository.ts` with its `toX()` mapper, and an integration
    test for the contract.
 5. **Interface** — `<name>.schema.ts` (wire shapes + `toXResponse`) and
    `<name>.routes.ts` (schemas on routes, thin inline handlers).
-6. **Compose** — `index.ts` wires adapter → service → routes; register the
-   module with its prefix in `src/app.ts`.
+6. **Compose** — `index.ts` wires implementations → service → routes; register
+   the module with its prefix in `src/app.ts`.
 7. `npm run check && npm run test:int`.
 
 The `task` module is the reference implementation of all six steps.

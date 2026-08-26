@@ -4,9 +4,9 @@ import type { FastifyInstance } from "fastify";
 
 /**
  * Owns the S3 client lifecycle — and nothing else. No buckets, no keys, no
- * upload logic: the plugin provides the raw client; what storage is FOR is a
- * module's port (see modules/user/user.ports.ts), and how it maps to S3 is
- * that module's adapter (user.storage.s3.ts).
+ * upload logic: the plugin provides the raw client; what the bytes are FOR is
+ * a module's port (`AvatarRepository` in modules/user/user.ports.ts), and how
+ * it maps to S3 is that module's implementation (user.s3.repository.ts).
  *
  * Constructing the client opens no connection, so booting without AWS
  * credentials is safe — the SDK dials only when a command is sent.

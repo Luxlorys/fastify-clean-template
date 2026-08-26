@@ -1,17 +1,17 @@
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import autoload from "@fastify/autoload";
 import Fastify from "fastify";
 import { serializerCompiler, validatorCompiler } from "fastify-type-provider-zod";
 import { loggerFor } from "./lib/logger.js";
-import databasePlugin from "./plugins/database.js";
-import errorHandlerPlugin from "./plugins/error-handler.js";
-import s3Plugin from "./plugins/s3.js";
-import securityPlugin from "./plugins/security.js";
-import swaggerPlugin from "./plugins/swagger.js";
 import { healthModule } from "./modules/health/index.js";
 import { onboardingModule } from "./modules/onboarding/index.js";
 import taskModule from "./modules/task/index.js";
 import userModule from "./modules/user/index.js";
 import type { AppConfig } from "./config.js";
 import type { FastifyInstance } from "fastify";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 /**
  * The application's composition root. Everything the app is made of is
@@ -33,11 +33,19 @@ export const buildApp = async (config: AppConfig): Promise<FastifyInstance> => {
     app.setValidatorCompiler(validatorCompiler);
     app.setSerializerCompiler(serializerCompiler);
 
-    await app.register(errorHandlerPlugin);
-    await app.register(databasePlugin);
-    await app.register(s3Plugin);
-    await app.register(securityPlugin);
-    await app.register(swaggerPlugin);
+    // Infrastructure plugins are uniform — every one of them is fastify-plugin
+    // wrapped, reads only `app.config`, and decorates the instance — so they
+    // are loaded by directory rather than listed. Adding one is adding a file.
+    //
+    // Autoload's order is alphabetical UNLESS a plugin declares `dependencies`
+    // in its fastify-plugin metadata, which hoists what it names. An ordering
+    // requirement therefore has to be written down in the plugin that has it
+    // (see plugins/swagger.ts) — it can no longer live in this file's line
+    // order, where it would be invisible and one rename away from breaking.
+    await app.register(autoload, {
+        dir: path.join(__dirname, "plugins"),
+        forceESM: true,
+    });
 
     // Publishers first — consumers below read their decorations.
     await app.register(userModule); //  mounts /api/users

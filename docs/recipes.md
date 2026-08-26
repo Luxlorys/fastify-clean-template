@@ -49,7 +49,9 @@ declare module "@fastify/jwt" {
 }
 ```
 
-Register it in `app.ts` (before the modules), then protect routes:
+Save it as `src/plugins/auth.ts` — autoload picks it up, no registration
+line to add. If it needs another plugin loaded first, name that plugin in
+`fp(..., { dependencies: [...] })`. Then protect routes:
 
 ```ts
 fastify.post("/", {
@@ -67,29 +69,114 @@ in an `auth` module's service (`fastify.jwt.sign(...)` passed in as a
 ## 2. An outbound adapter (object storage, mail, payments…)
 
 This one lives in the code — the avatar upload in `modules/user` is the full
-reference: **port in the consumer's vocabulary, adapter owns the SDK, plugin
-owns the client lifecycle.**
+reference: **port in the consumer's vocabulary, the implementation owns the
+SDK, the plugin owns the client lifecycle.**
 
 - **Plugin**: `src/plugins/s3.ts` — client from config, `decorate("s3")`,
   destroy on close. Typed in `src/types/fastify.d.ts`.
-- **Port**: `modules/user/user.ports.ts` — `AvatarStorage.uploadAvatar(...)`;
+- **Port**: `modules/user/user.ports.ts` — `AvatarRepository.uploadAvatar(...)`;
   purpose-named, zero SDK vocabulary.
-- **Adapter**: `modules/user/user.storage.s3.ts` — bucket, key layout,
-  `PutObjectCommand`; the only module file importing `@aws-sdk/*`.
+- **Implementation**: `modules/user/user.s3.repository.ts` — bucket, key
+  layout, `PutObjectCommand`; the only module file importing `@aws-sdk/*`.
+  Every port implementation is named `<module>.<technology>.repository.ts`.
 - **Wiring**: `modules/user/index.ts` —
-  `createS3AvatarStorage(fastify.s3, config.S3_AVATARS_BUCKET)`.
-- **Boundaries**: `storage-adapter-stays-below` +
-  `aws-sdk-only-in-storage-adapters` in `.dependency-cruiser.cjs` — the
+  `createS3AvatarRepository(fastify.s3, config.S3_AVATARS_BUCKET)`.
+- **Boundaries**: `s3-implementation-stays-below` +
+  `aws-sdk-only-in-s3-implementations` in `.dependency-cruiser.cjs` — the
   storage twins of the Prisma rules.
-- **Tests**: `test/helpers/in-memory-avatar-storage.ts` (unit lane),
-  `test/int/user.storage.s3.test.ts` + `test/int/setup/minio.ts` (adapter
-  contract against MinIO — a real S3 API, no AWS account needed).
+- **Tests**: `test/helpers/in-memory-avatar-repository.ts` (unit lane),
+  `test/int/user.s3.repository.test.ts` + `test/int/setup/minio.ts`
+  (implementation contract against MinIO — a real S3 API, no AWS account
+  needed).
 
-To add another technology (a mail sender, a Redis cache, a payment client),
-copy that six-piece shape with a new role suffix (`*.mailer.ses.ts`,
-`*.cache.redis.ts`) and its dependency-cruiser pair. Presigned URLs, when
-needed, are one more port method (`signedReadUrl`) implemented in the adapter
-with `@aws-sdk/s3-request-presigner`.
+To add another technology (a mail sender, a payment client), copy that
+five-piece shape with a new file (`user.ses.repository.ts`) and its
+dependency-cruiser pair. Presigned URLs, when needed, are one more port method
+(`signedReadUrl`) implemented in `user.s3.repository.ts` with
+`@aws-sdk/s3-request-presigner`.
+
+---
+
+## 2b. Caching an entity (Redis)
+
+Also in the code — read `modules/task`. Caching is exactly the
+plugin/port/implementation shape above, with the cache as a **sibling of the
+repository, never a wrapper around it**:
+
+| Piece              | File                                  | Owns                                                                                                                                                                                                                    |
+| ------------------ | ------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Plugin**         | `src/plugins/redis.ts`                | The client lifecycle only. `lazyConnect` so boot does not depend on Redis; `maxRetriesPerRequest: 1` so an outage costs one failure, not twenty retries; an `error` listener because an unhandled one is fatal in Node. |
+| **Port**           | `modules/task/task.ports.ts`          | `TaskCache.read/write/forget` — the module's words. No `get`, `set` or `expire`.                                                                                                                                        |
+| **Implementation** | `modules/task/task.cache.repository.ts` | Key layout (`task:v1:<id>`), the TTL, the JSON codec with Date revival, and the failure policy. The only file importing `ioredis`.                                                                                    |
+| **Policy**         | `modules/task/task.service.ts`        | Which use case may read a snapshot and which must not, and where invalidation happens. Holds both ports; imports no SDK.                                                                                                |
+
+`index.ts` picks the two implementations and hands both to the service:
+
+```ts
+const repository = createPrismaTaskRepository(fastify.prisma);
+
+const cache = createRedisTaskCache(
+    fastify.redis,
+    fastify.config.CACHE_TTL_SECONDS,
+);
+
+const service = createTaskService({ repository, cache, clock: systemClock });
+```
+
+There is no middle file between them. The cost is that each use case states
+its own cache policy; the benefit is that the policy is readable where it
+matters and a command can never be silently served a snapshot.
+
+Six rules that carry the design:
+
+- **Invalidate on the write path.** Every write goes through one `persist()`
+  helper that saves and then calls `cache.forget()`. The failure mode of
+  hand-rolled caching is always a write that busts nothing; giving the module
+  one function that does both makes it hard to forget.
+- **Never cache the read a write is derived from.** The service reads twice as
+  many ways as it has reads: `getTask` (a query — cache first, repository on a
+  miss) and the private `loadForUpdate` (a command's read — always
+  `repository.findById`). Use cases that read, apply a domain rule and then
+  `save` must use the second. Busting on write is not enough on its own: a
+  reader that missed
+  can write its now-obsolete row into the cache _after_ a concurrent `save` has
+  already called `forget`, and that entry then lives out the full TTL. A command
+  reading it would judge its rules against a state that no longer exists —
+  completing a task archived minutes ago — and then save the stale entity back,
+  reverting every field it never saw change. A stale query is a cache working;
+  a stale command is data loss. Regression tests live in
+  `test/unit/task.service.test.ts` under "commands read the source of truth".
+- **Never cache a list.** Cursor-paginated, filtered results mean one write
+  invalidates an unbounded set of pages. Cache entities by id.
+- **Version the key.** A blob outlives a deploy. Bump `v1` when the entity's
+  shape changes; a blob that no longer parses is a miss, not a 500.
+- **A cache outage degrades, it does not fail.** The implementation catches —
+  not the service: `read` returns null and the request falls through to
+  Postgres. Proved against a dead server in
+  `test/int/task.cache.repository.test.ts`. A service that swallowed cache
+  errors itself would hide a genuinely broken port implementation, so
+  `test/unit/task.service.test.ts` pins that it does not.
+- **The TTL bounds a lost invalidation.** `forget` is best effort — throwing
+  would fail a request whose database write already committed. So
+  `CACHE_TTL_SECONDS` is the worst-case staleness. If a use case needs
+  guaranteed invalidation, it needs an outbox, not a bigger try/catch.
+
+Tests: the caching policy has no test file of its own because it has no file of
+its own — `test/unit/task.service.test.ts` covers it with two in-memory
+implementations and no container (a counting repository makes a cache _hit_
+observable). `test/int/task.cache.repository.test.ts` pins the implementation
+contract against a real Redis — Date revival, TTL, a stale-shape blob, and the
+outage path. When the port's semantics change, update the in-memory
+implementation and the integration test together.
+
+**Pub/sub and streams are a different recipe, not this one.** Publishing is an
+outbound port like any other, but a subscriber is a _second entry point_ into
+the app — it belongs beside routes in `index.ts`, translating a message into a
+call on the module's own service. Two things to know before reaching for it:
+Redis pub/sub has no persistence and no ack, so a subscriber that is down
+during a deploy loses those messages permanently (use Streams with consumer
+groups, or a real queue, for anything that must happen); and a subscribing
+connection is blocked, so it needs `redis.duplicate()`, not the shared client.
 
 ---
 
@@ -97,28 +184,37 @@ with `@aws-sdk/s3-request-presigner`.
 
 This one lives in the code, not just in this file — read the slice:
 
-- **Contract**: `src/modules/user/user.contract.ts` — the capability the module
-  offers, as pure types over ids and plain inputs. The only file in that folder
-  another module may import. `src/modules/task/task.contract.ts` is the second
+- **Published API**: `UserPublicApi`, in the last section of
+  `src/modules/user/user.ports.ts` — the capability the module offers, as pure
+  types over ids and plain inputs. That file is the only one in the folder
+  another module may import, and this type is the only thing it should take
+  from it. `TaskPublicApi` in `src/modules/task/task.ports.ts` is the second
   example.
 - **Publisher**: `src/modules/user/index.ts` — builds its service, calls
   `fastify.decorate("userService", service)`, and is exported wrapped in
   `fastify-plugin` so the decoration escapes encapsulation and reaches
   siblings (which is also why it mounts its own `/api/users` prefix
   internally: fp-wrapped plugins don't receive one). `src/types/fastify.d.ts`
-  types that decoration as **the contract, not the service** — which is what
-  keeps `fastify.userService` from becoming a way into the whole module.
-- **Consumer**: `src/modules/onboarding/` — imports the two contract types
-  directly and wires `fastify.userService` / `fastify.taskService` into its
-  service in `index.ts`. The import is a real edge, so `npm run boundaries`
-  checks it; everything else in those folders stays unreachable.
+  types that decoration as **the published API, not the service** — which is
+  what keeps `fastify.userService` from becoming a way into the whole module.
+- **Consumer**: `src/modules/onboarding/` — names both published types in its
+  own `onboarding.ports.ts` and wires `fastify.userService` /
+  `fastify.taskService` into its service in `index.ts`. The import is a real
+  edge, so `npm run boundaries` checks it; the rest of those folders stays
+  unreachable.
 - **Order**: `app.ts` registers publishers before consumers.
-- **Tests**: `test/unit/onboarding.service.test.ts` fakes each contract in five
-  lines; `test/int/onboarding.test.ts` proves the wiring over HTTP.
+- **Tests**: `test/unit/onboarding.service.test.ts` fakes each published API in
+  five lines; `test/int/onboarding.test.ts` proves the wiring over HTTP.
 
-Do **not** re-declare the provider's signature in the consumer's `*.ports.ts`.
-Ports invert outbound infrastructure you implement several ways; contracts
-publish a capability another module owns. See [ADR-0006](adr/0006-module-contracts.md).
+Do **not** re-declare the provider's signature as a port of your own. The ports
+section of a `*.ports.ts` inverts outbound infrastructure _you_ implement
+several ways; the public API section publishes a capability _this_ module owns.
+See [ADR-0006](adr/0006-module-contracts.md).
+
+Note the limit of the enforcement: `modules-are-islands` checks that only
+`*.ports.ts` crosses a module border, but since ports and published API share
+one file, nothing stops a sibling importing `UserRepository` too. That one is
+on review, not on the tool.
 
 If two modules keep growing shared surface, that is the signal they are one
 module — merge them, or extract the shared core to `lib/`.

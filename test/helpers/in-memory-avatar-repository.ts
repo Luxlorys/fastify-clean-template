@@ -1,11 +1,11 @@
-import type { AvatarStorage } from "@/modules/user/user.ports.js";
+import type { AvatarRepository } from "@/modules/user/user.ports.js";
 
 /**
- * Genuine implementation of the AvatarStorage port: stores objects in a Map
- * and mirrors the adapter's key contract (unique key per upload, prefixed by
- * user id).
+ * A genuine implementation of the AvatarRepository port, not a mock: it stores
+ * objects in a Map and mirrors the key contract user.s3.repository.ts honors
+ * (a unique key per upload, prefixed by user id).
  */
-export const createInMemoryAvatarStorage = (): AvatarStorage & {
+export const createInMemoryAvatarRepository = (): AvatarRepository & {
     objects: () => Map<string, { body: Buffer; contentType: string }>;
 } => {
     let counter = 0;

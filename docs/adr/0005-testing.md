@@ -34,7 +34,7 @@ ships zero `vi.mock`/`vi.fn` calls.
   they restate the implementation and break on refactors that preserve
   behavior. Port-implementation tests assert behavior ("creating then listing
   returns the task first") and survive refactors.
-- The in-memory implementation is honest because the _adapter_ integration
+- The in-memory implementation is honest because the _real_ implementation's integration
   tests pin the same contract against the real database. The pair — fake
   verified against real — is what makes fast unit tests trustworthy.
 - `buildApp(config)` taking config as a value lets integration tests exercise
@@ -50,5 +50,5 @@ ships zero `vi.mock`/`vi.fn` calls.
   conventions (factories, no hardcoded ids, journeys in one `it`) are
   documented in ARCHITECTURE.md §4 and CLAUDE.md.
 - When a port gains semantics (new ordering, filters), extend **both** the
-  in-memory implementation and the adapter tests; a drifting fake is the
+  in-memory implementation and the integration tests; a drifting fake is the
   failure mode of this strategy.

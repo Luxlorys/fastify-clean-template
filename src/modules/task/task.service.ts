@@ -1,51 +1,47 @@
 import { archiveTask, completeTask, draftTask } from "./task.entity.js";
 import { TaskNotFoundError } from "./task.errors.js";
 import type { Task } from "./task.entity.js";
-import type { TaskListQuery, TaskRepository } from "./task.repository.js";
-import type { Clock } from "@/lib/clock.js";
-import type { Page } from "@/lib/pagination.js";
+import type { TaskService, TaskServiceDeps } from "./task.ports.js";
 
-/**
- * The application layer: one function per use case. Note what is absent —
- * no Fastify, no Zod, no Prisma, no HTTP status codes, no response envelopes.
- * Inputs and outputs are the module's own types, so this file is fully
- * exercised by unit tests with an in-memory repository and a fixed clock.
- */
-export type CreateTaskInput = {
-    title: string;
-    dueDate?: Date | null;
-};
+const orNotFound = (task: Task | null): Task => {
+    if (task === null) {
+        throw new TaskNotFoundError();
+    }
 
-export type TaskService = {
-    createTask: (input: CreateTaskInput) => Promise<Task>;
-    getTask: (id: number) => Promise<Task>;
-    listTasks: (query: TaskListQuery) => Promise<Page<Task>>;
-    completeTask: (id: number) => Promise<Task>;
-    archiveTask: (id: number) => Promise<Task>;
-};
-
-export type TaskServiceDeps = {
-    repository: TaskRepository;
-    clock: Clock;
+    return task;
 };
 
 export const createTaskService = ({
     repository,
+    cache,
     clock,
 }: TaskServiceDeps): TaskService => {
     const getTask = async (id: number): Promise<Task> => {
-        const task = await repository.findById(id);
+        const cached = await cache.read(id);
 
-        if (task === null) {
-            throw new TaskNotFoundError();
+        if (cached !== null) {
+            return cached;
         }
+
+        const task = orNotFound(await repository.findById(id));
+
+        await cache.write(task);
 
         return task;
     };
 
+    const loadForUpdate = async (id: number): Promise<Task> =>
+        orNotFound(await repository.findById(id));
+
+    const persist = async (task: Task): Promise<Task> => {
+        const saved = await repository.save(task);
+
+        await cache.forget(saved.id);
+
+        return saved;
+    };
+
     return {
-        // async so a rule rejection surfaces as a rejected promise, never a
-        // synchronous throw from a Promise-returning API.
         createTask: async (input) =>
             repository.create(draftTask(input, clock.now())),
 
@@ -53,8 +49,8 @@ export const createTaskService = ({
 
         listTasks: (query) => repository.list(query),
 
-        completeTask: async (id) => repository.save(completeTask(await getTask(id))),
+        completeTask: async (id) => persist(completeTask(await loadForUpdate(id))),
 
-        archiveTask: async (id) => repository.save(archiveTask(await getTask(id))),
+        archiveTask: async (id) => persist(archiveTask(await loadForUpdate(id))),
     };
 };

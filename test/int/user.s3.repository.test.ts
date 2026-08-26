@@ -1,22 +1,22 @@
 import { GetObjectCommand } from "@aws-sdk/client-s3";
 import { beforeEach, describe, expect, it } from "vitest";
-import { createS3AvatarStorage } from "@/modules/user/user.storage.s3.js";
+import { createS3AvatarRepository } from "@/modules/user/user.s3.repository.js";
 import { buildTestApp } from "./helpers/build-test-app.js";
 import type { FastifyInstance } from "fastify";
-import type { AvatarStorage } from "@/modules/user/user.ports.js";
+import type { AvatarRepository } from "@/modules/user/user.ports.js";
 
 /**
- * Adapter contract test: the S3 implementation of the AvatarStorage port
+ * Implementation contract test: the S3 implementation of the AvatarRepository port
  * against a real S3 API (MinIO from the integration setup). This is what
  * licenses the in-memory implementation used by the unit lane.
  */
-describe("s3 avatar storage", () => {
+describe("s3 avatar repository", () => {
     let app: FastifyInstance;
-    let storage: AvatarStorage;
+    let avatars: AvatarRepository;
 
     beforeEach(async () => {
         app = await buildTestApp();
-        storage = createS3AvatarStorage(app.s3, app.config.S3_AVATARS_BUCKET);
+        avatars = createS3AvatarRepository(app.s3, app.config.S3_AVATARS_BUCKET);
 
         return async () => {
             await app.close();
@@ -26,7 +26,7 @@ describe("s3 avatar storage", () => {
     it("stores the bytes with their content type and returns a user-scoped key", async () => {
         const body = Buffer.from("fake-png-bytes");
 
-        const key = await storage.uploadAvatar({
+        const key = await avatars.uploadAvatar({
             userId: 42,
             body,
             contentType: "image/png",
@@ -49,13 +49,13 @@ describe("s3 avatar storage", () => {
     });
 
     it("never reuses a key, so re-uploads don't clobber in-flight reads", async () => {
-        const first = await storage.uploadAvatar({
+        const first = await avatars.uploadAvatar({
             userId: 42,
             body: Buffer.from("one"),
             contentType: "image/png",
         });
 
-        const second = await storage.uploadAvatar({
+        const second = await avatars.uploadAvatar({
             userId: 42,
             body: Buffer.from("two"),
             contentType: "image/png",

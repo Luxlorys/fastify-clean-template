@@ -7,17 +7,11 @@ import {
     toTaskResponse,
 } from "./task.schema.js";
 import { errorResponseSchema } from "@/lib/schemas.js";
-import type { TaskService } from "./task.service.js";
+import type { TaskService } from "./task.ports.js";
 import type { FastifyPluginAsyncZod } from "fastify-type-provider-zod";
 
 const TASK_TAG = "tasks";
 
-/**
- * The HTTP edge of the module. Handlers stay thin: parse (done by Fastify via
- * the schema), call the service, map the result to the wire shape. Domain
- * errors thrown below are translated to status codes by the error-handler
- * plugin — no try/catch here.
- */
 export const taskRoutes =
     (service: TaskService): FastifyPluginAsyncZod =>
     async (fastify) => {

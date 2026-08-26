@@ -7,47 +7,70 @@
  *
  *   index.ts                 composition root — may see everything in the module
  *   *.routes.ts, *.schema.ts interface layer  — fastify + zod, calls the service
- *   *.service.ts             application      — entity + port + lib only
- *   *.repository.prisma.ts   adapter          — implements the port, owns Prisma
- *   *.storage.s3.ts          adapter          — implements a storage port, owns @aws-sdk
- *   *.repository.ts          port             — types only
- *   *.ports.ts               outbound ports   — types only (storage, cache, mail — infrastructure)
- *   *.contract.ts            public API       — types only; the ONLY file other modules may import
+ *   *.service.ts             application      — entity + ports + lib only
+ *   *.prisma.repository.ts   implementation   — implements a repository port, owns Prisma
+ *   *.cache.repository.ts    implementation   — implements a cache port, owns ioredis
+ *   *.s3.repository.ts       implementation   — implements a storage port, owns @aws-sdk
+ *   *.ports.ts               ports + public API — types only; EVERY abstract type the
+ *                                                module owns, and the ONLY file other
+ *                                                modules may import
  *   *.entity.ts, *.errors.ts domain           — pure TypeScript
  *
- * Ports and contracts are different jobs and must not be mixed:
+ * Every port implementation is named `<module>.<technology>.repository.ts`:
+ * one role suffix for the whole family, with the technology in the middle so
+ * it is visible at the composition root where it is chosen. Each technology
+ * gets its own rule below, because each is allowed a different SDK.
+ *
+ * *.ports.ts carries two jobs, so keep them visibly separate inside the file:
  *   - a PORT inverts an outbound dependency the module owns several
- *     implementations of (S3, in-memory, …). The module declares what it needs.
- *   - a CONTRACT publishes a capability the module offers to siblings. The
- *     module declares what it gives. One definition, N consumers, one import
- *     edge this file can police.
+ *     implementations of (Prisma, Redis, S3, in-memory, …). The module
+ *     declares what it needs.
+ *   - the PUBLIC API publishes a capability the module offers to siblings. The
+ *     module declares what it gives, in plain data over ids — never entities.
+ *
+ * Because both live in one file, `modules-are-islands` below can only police
+ * WHICH FILE crosses a module border, not which type inside it. "A sibling
+ * imports the public API and nothing else" is therefore a convention here,
+ * not an enforced rule. If that starts to leak, split the public API back
+ * into its own *.contract.ts and give it its own rule.
  */
 
 /** What domain files (entities, errors) may depend on: each other and the pure lib files. */
 const DOMAIN_ALLOWED =
     "^src/modules/[^/]+/[^/]+\\.(entity|errors)\\.ts$|^src/lib/(errors|clock|pagination)\\.ts$";
 
-/** What a service may depend on: the domain, its ports, other modules' published contracts, other services in its module, pure lib. */
+/** What a service may depend on: the domain, its ports, other modules' published APIs (also *.ports.ts), other services in its module, pure lib. */
 const SERVICE_ALLOWED =
-    "^src/modules/[^/]+/[^/]+\\.(entity|errors|repository|service|ports|contract)\\.ts$|^src/lib/(errors|clock|pagination)\\.ts$";
-
-/** What a port may depend on: the domain and pure lib types. */
-const PORT_ALLOWED = DOMAIN_ALLOWED;
+    "^src/modules/[^/]+/[^/]+\\.(entity|errors|service|ports)\\.ts$|^src/lib/(errors|clock|pagination)\\.ts$";
 
 /**
- * What a published contract may depend on: pure lib types only. Deliberately
- * narrower than a port — a contract crosses a module border, so it may not
- * reference the module's own entities. Ids and plain inputs cross, not `User`.
+ * What a *.ports.ts file may depend on: the domain, pure lib types, and other
+ * modules' *.ports.ts (that is how a consumer names a published API). Never a
+ * framework, an SDK, a service or an implementation.
  */
-const CONTRACT_ALLOWED = "^src/lib/(errors|clock|pagination)\\.ts$";
+const PORT_ALLOWED =
+    "^src/modules/[^/]+/[^/]+\\.(entity|errors|ports)\\.ts$|^src/lib/(errors|clock|pagination)\\.ts$";
 
-/** What an adapter may depend on: domain, port, the generated Prisma client, pure lib. */
-const ADAPTER_ALLOWED =
-    "^src/modules/[^/]+/[^/]+\\.(entity|errors|repository)\\.ts$|^src/generated/|^src/lib/(errors|clock|pagination)\\.ts$";
+/** What every port implementation may depend on: the domain, the module's ports, pure lib. Its own SDK is added per rule below. */
+const IMPLEMENTATION_ALLOWED =
+    "^src/modules/[^/]+/[^/]+\\.(entity|errors|ports)\\.ts$|^src/lib/(errors|clock|pagination)\\.ts$";
 
-/** What a storage adapter may depend on: domain, its ports, the AWS SDK, pure lib (node builtins are exempted in the rule itself). */
-const STORAGE_ADAPTER_ALLOWED =
-    "^src/modules/[^/]+/[^/]+\\.(entity|errors|repository|ports)\\.ts$|^src/lib/(errors|clock|pagination)\\.ts$|^node_modules/@aws-sdk";
+/** The Prisma implementation of a repository port. */
+const PRISMA_IMPLEMENTATION_ALLOWED = `${IMPLEMENTATION_ALLOWED}|^src/generated/`;
+
+/** The Redis implementation of a cache port. */
+const CACHE_IMPLEMENTATION_ALLOWED = `${IMPLEMENTATION_ALLOWED}|^node_modules/ioredis`;
+
+/** The S3 implementation of a storage port (node builtins are exempted in the rule itself). */
+const S3_IMPLEMENTATION_ALLOWED = `${IMPLEMENTATION_ALLOWED}|^node_modules/@aws-sdk`;
+
+/**
+ * Every file that implements a port — `<module>.<technology>.repository.ts`,
+ * whatever the technology. Matching the family rather than listing it means a
+ * new implementation is covered by the composition-root rule the day it is
+ * added, before anyone remembers to update this file.
+ */
+const IMPLEMENTATION_FILES = "\\.[^./]+\\.repository\\.ts$";
 
 module.exports = {
     forbidden: [
@@ -71,8 +94,10 @@ module.exports = {
             name: "service-sees-no-infrastructure",
             severity: "error",
             comment:
-                "Services depend on ports and entities, never on Fastify, Zod, Prisma, adapters, routes or schemas. " +
-                "This is what keeps use cases unit-testable with an in-memory repository.",
+                "Services depend on ports and entities, never on Fastify, Zod, Prisma, ioredis, a port " +
+                "implementation, routes or schemas. A service holds the repository port AND the cache " +
+                "port and decides which one each use case reads — but it never learns which technology " +
+                "is behind either. This is what keeps use cases unit-testable with in-memory ports.",
             from: { path: "^src/modules/[^/]+/[^/]+\\.service\\.ts$" },
             to: { pathNot: SERVICE_ALLOWED },
         },
@@ -80,86 +105,110 @@ module.exports = {
             name: "port-is-types-only",
             severity: "error",
             comment:
-                "A repository port speaks the module's domain vocabulary only — no frameworks, no Prisma.",
-            from: {
-                path: "^src/modules/[^/]+/[^/]+\\.(repository|ports)\\.ts$",
-            },
+                "A *.ports.ts file holds every abstract type the module owns — repository, cache, " +
+                "storage, and the public API siblings import — and speaks the module's domain " +
+                "vocabulary only: no frameworks, no SDKs. The public API section must stay plain " +
+                "data over ids: this rule cannot see inside the file, so keep entities out of it " +
+                "by hand.",
+            from: { path: "^src/modules/[^/]+/[^/]+\\.ports\\.ts$" },
             to: { pathNot: PORT_ALLOWED },
         },
         {
-            name: "contract-is-types-only",
+            name: "prisma-implementation-stays-below",
             severity: "error",
             comment:
-                "A module's published contract is the one file siblings may import, so it must stay a " +
-                "pure type declaration over ids and plain inputs: no frameworks, no Prisma, and no " +
-                "entities — importing an entity here would drag the module's domain across the border.",
-            from: { path: "^src/modules/[^/]+/[^/]+\\.contract\\.ts$" },
-            to: { pathNot: CONTRACT_ALLOWED },
+                "A Prisma repository implements a port from *.ports.ts; it may not reach up into " +
+                "services, routes or schemas, and it may not import Fastify.",
+            from: { path: "^src/modules/[^/]+/[^/]+\\.prisma\\.repository\\.ts$" },
+            to: { pathNot: PRISMA_IMPLEMENTATION_ALLOWED },
         },
         {
-            name: "adapter-stays-below",
+            name: "cache-implementation-stays-below",
             severity: "error",
             comment:
-                "A Prisma adapter implements the port; it may not reach up into services, routes or schemas, " +
-                "and it may not import Fastify.",
-            from: { path: "^src/modules/[^/]+/[^/]+\\.repository\\.prisma\\.ts$" },
-            to: { pathNot: ADAPTER_ALLOWED },
+                "A cache repository implements a cache port from *.ports.ts; it may not reach up into " +
+                "services, routes or schemas, and it may not import Fastify or Prisma. It is a sibling " +
+                "of the Prisma repository, never a wrapper around it — a cache that calls the database " +
+                "is a second service in disguise.",
+            from: { path: "^src/modules/[^/]+/[^/]+\\.cache\\.repository\\.ts$" },
+            to: {
+                pathNot: CACHE_IMPLEMENTATION_ALLOWED,
+                dependencyTypesNot: ["core"],
+            },
         },
         {
-            name: "storage-adapter-stays-below",
+            name: "s3-implementation-stays-below",
             severity: "error",
             comment:
-                "A storage adapter implements its port; it may not reach up into services, routes or " +
-                "schemas, and it may not import Fastify or Prisma.",
-            from: { path: "^src/modules/[^/]+/[^/]+\\.storage\\.s3\\.ts$" },
-            to: { pathNot: STORAGE_ADAPTER_ALLOWED, dependencyTypesNot: ["core"] },
+                "An S3 repository implements a storage port; it may not reach up into services, " +
+                "routes or schemas, and it may not import Fastify or Prisma.",
+            from: { path: "^src/modules/[^/]+/[^/]+\\.s3\\.repository\\.ts$" },
+            to: {
+                pathNot: S3_IMPLEMENTATION_ALLOWED,
+                dependencyTypesNot: ["core"],
+            },
         },
         {
-            name: "aws-sdk-only-in-storage-adapters",
+            name: "redis-only-in-cache-implementations",
             severity: "error",
             comment:
-                "The AWS SDK may be imported only by *.storage.s3.ts adapters, the s3 plugin " +
+                "ioredis may be imported only by *.cache.repository.ts files, the redis plugin " +
                 "(client lifecycle), the fastify type augmentation, and tests. Everything else " +
-                "programs against a port — the storage twin of prisma-only-in-adapters.",
+                "programs against a port — the cache twin of prisma-only-in-repositories.",
             from: {
                 pathNot:
-                    "\\.storage\\.s3\\.ts$|^src/plugins/s3\\.ts$|^src/types/fastify\\.d\\.ts$|^test/",
+                    "\\.cache\\.repository\\.ts$|^src/plugins/redis\\.ts$|^src/types/fastify\\.d\\.ts$|^test/",
+            },
+            to: { path: "^node_modules/ioredis" },
+        },
+        {
+            name: "aws-sdk-only-in-s3-implementations",
+            severity: "error",
+            comment:
+                "The AWS SDK may be imported only by *.s3.repository.ts files, the s3 plugin " +
+                "(client lifecycle), the fastify type augmentation, and tests. Everything else " +
+                "programs against a port — the storage twin of prisma-only-in-repositories.",
+            from: {
+                pathNot:
+                    "\\.s3\\.repository\\.ts$|^src/plugins/s3\\.ts$|^src/types/fastify\\.d\\.ts$|^test/",
             },
             to: { path: "^node_modules/@aws-sdk" },
         },
         {
-            name: "prisma-only-in-adapters",
+            name: "prisma-only-in-repositories",
             severity: "error",
             comment:
-                "The generated Prisma client may be imported only by repository adapters, the database plugin, " +
+                "The generated Prisma client may be imported only by *.prisma.repository.ts files, the database plugin, " +
                 "the fastify type augmentation, and tests (factories seed through Prisma on purpose).",
             from: {
                 pathNot:
-                    "^src/modules/[^/]+/[^/]+\\.repository\\.prisma\\.ts$|^src/plugins/database\\.ts$|^src/types/fastify\\.d\\.ts$|^src/generated/|^test/",
+                    "^src/modules/[^/]+/[^/]+\\.prisma\\.repository\\.ts$|^src/plugins/database\\.ts$|^src/types/fastify\\.d\\.ts$|^src/generated/|^test/",
             },
             to: { path: "^src/generated/" },
         },
         {
-            name: "adapters-composed-only-at-the-root",
+            name: "implementations-composed-only-at-the-root",
             severity: "error",
             comment:
-                "Only a module's index.ts (its composition root) and tests may instantiate an adapter. " +
-                "Everything else programs against the port.",
+                "Only a module's index.ts (its composition root) and tests may instantiate a port " +
+                "implementation. Everything else — the service included — programs against the port. " +
+                "This is also what stops one implementation importing another: a cache repository that " +
+                "reached for the Prisma repository would be composing, and composing happens here.",
             from: { pathNot: "(^|/)index\\.ts$|^test/" },
-            to: { path: "\\.repository\\.prisma\\.ts$|\\.storage\\.s3\\.ts$" },
+            to: { path: IMPLEMENTATION_FILES },
         },
         {
             name: "modules-are-islands",
             severity: "error",
             comment:
-                "A module may import exactly one thing from another module: its *.contract.ts. Everything " +
-                "else in that folder is private. The implementation still arrives as a decoration wired in " +
-                "index.ts (see docs/recipes.md); the contract is only how its type crosses the border.",
+                "A module may import exactly one FILE from another module: its *.ports.ts, and from it " +
+                "only the published public API type. Everything else in that folder — entity, errors, " +
+                "service, implementations — is private. The implementation still arrives as a decoration " +
+                "wired in index.ts (see docs/recipes.md); the type is all that crosses the border.",
             from: { path: "^src/modules/([^/]+)/" },
             to: {
                 path: "^src/modules/",
-                pathNot:
-                    "^src/modules/$1/|^src/modules/[^/]+/[^/]+\\.contract\\.ts$",
+                pathNot: "^src/modules/$1/|^src/modules/[^/]+/[^/]+\\.ports\\.ts$",
             },
         },
         {
@@ -181,7 +230,7 @@ module.exports = {
     ],
     options: {
         // Generated Prisma code is a black box: edges INTO it are checked
-        // (prisma-only-in-adapters), its internals are not analyzed.
+        // (prisma-only-in-repositories), its internals are not analyzed.
         doNotFollow: { path: "node_modules|^src/generated" },
         tsConfig: { fileName: "tsconfig.json" },
         // Count type-only imports as dependencies: an `import type` across a

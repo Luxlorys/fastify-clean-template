@@ -13,7 +13,16 @@ export default defineConfig({
         include: ["test/int/**/*.test.ts"],
         environment: "node",
         globalSetup: ["test/int/setup/global.ts"],
-        setupFiles: ["test/int/setup/env.ts", "test/int/setup/reset-db.ts"],
+        setupFiles: [
+            "test/int/setup/env.ts",
+            "test/int/setup/reset-db.ts",
+            "test/int/setup/reset-redis.ts",
+        ],
+        // app.ts loads src/plugins/ through @fastify/autoload, which import()s
+        // each file at runtime. Externalized dependencies run their imports in
+        // plain Node, which cannot read .ts — inlining autoload puts that
+        // import() back through Vite's transform.
+        server: { deps: { inline: ["@fastify/autoload"] } },
         maxWorkers: INT_TEST_WORKERS,
         hookTimeout: 120_000,
         testTimeout: 30_000,

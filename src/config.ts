@@ -12,6 +12,10 @@ const envSchema = z.object({
     HOST: z.string().default("0.0.0.0"),
     PORT: z.coerce.number().int().positive().default(3000),
     DATABASE_URL: z.string().min(1),
+    REDIS_URL: z.string().min(1),
+    /** How long a cached entity stays readable — the bound on stale data if an
+     *  invalidation is ever lost (see modules/task/task.cache.repository.ts). */
+    CACHE_TTL_SECONDS: z.coerce.number().int().positive().default(60),
     DOCS_PASSWORD: z.string().min(1).optional(),
     RATE_LIMIT_MAX: z.coerce.number().int().positive().default(100),
     // Object storage (S3 API). Endpoint is set for S3-compatible servers
