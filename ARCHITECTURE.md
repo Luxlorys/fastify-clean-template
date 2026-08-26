@@ -22,6 +22,7 @@ modules/task/
 ├── task.routes.ts   ┐
 ├── task.schema.ts   ┘         interface layer (Fastify + Zod)
 ├── task.service.ts            application layer (use cases)
+├── task.contract.ts           public API — the only file other modules import
 ├── task.repository.ts         port
 ├── task.repository.prisma.ts  adapter (Prisma)
 ├── task.entity.ts   ┐
@@ -68,7 +69,8 @@ by dependency-cruiser):
 | `*.entity.ts`, `*.errors.ts`       | each other, `lib/errors`, `lib/clock`, `lib/pagination`  | **anything else** — no npm package, no Fastify, no Zod, no Prisma |
 | `*.repository.ts` (port)           | domain files, pure lib                                   | frameworks, adapters, services                                    |
 | `*.ports.ts` (outbound ports)      | domain files, pure lib                                   | frameworks, adapters, services                                    |
-| `*.service.ts`                     | domain, ports, other services in its module, pure lib    | Fastify, Zod, Prisma, adapters, routes, schemas, plugins          |
+| `*.contract.ts` (public API)       | **pure lib only**                                        | **its own entities**, frameworks, everything else                 |
+| `*.service.ts`                     | domain, its ports, other modules' contracts, other services in its module, pure lib | Fastify, Zod, Prisma, adapters, routes, schemas, plugins |
 | `*.repository.prisma.ts` (adapter) | domain, its port, `src/generated/prisma`, pure lib       | Fastify, services, routes, schemas                                |
 | `*.storage.s3.ts` (adapter)        | domain, its ports, `@aws-sdk/*`, node builtins, pure lib | Fastify, Prisma, services, routes, schemas                        |
 | `*.routes.ts`, `*.schema.ts`       | everything in the module except the adapter; `lib`       | Prisma, other modules                                             |
@@ -76,9 +78,10 @@ by dependency-cruiser):
 
 Cross-cutting rules, also enforced:
 
-- **Modules are islands.** No module imports another module's files. Shared
-  code moves to `lib/`; a module that offers a capability to others decorates
-  the Fastify instance (see [docs/recipes.md](docs/recipes.md)).
+- **Modules are islands with one door.** A module may import exactly one file
+  from another module: its `*.contract.ts`. Everything else in that folder —
+  entity, service type, ports, adapters — is private. Shared *code* still moves
+  to `lib/`; a contract shares only a type.
 - **Prisma appears in exactly three places**: `*.repository.prisma.ts`
   adapters, `src/plugins/database.ts` (lifecycle), and the type augmentation.
   Tests are exempt — factories seed through Prisma deliberately.
@@ -99,26 +102,44 @@ PostgreSQL for something else is a new adapter file plus one changed line in
 
 ### Publishers and consumers (cross-module use)
 
-Modules never import each other, yet capabilities flow between them — as
-runtime values on the Fastify instance:
+Capabilities flow between modules as **runtime values on the Fastify instance**,
+typed by a **contract the providing module publishes**:
 
-- A **publisher** module (`modules/user`, `modules/task`) decorates the
-  instance with its service (`fastify.decorate("userService", service)`).
+- A **publisher** module (`modules/user`, `modules/task`) writes a
+  `*.contract.ts` — a pure type over ids and plain inputs, naming only the
+  capabilities it offers — and decorates the instance with its service
+  (`fastify.decorate("userService", service)`). The full service satisfies the
+  narrower contract structurally, so the decoration compiles unchanged.
   Publishing changes the module's shape: it is wrapped in `fastify-plugin` so
   the decoration escapes encapsulation, and it therefore mounts its own route
-  prefix internally. Decorations are typed once in `src/types/fastify.d.ts`
-  — the one app-level file allowed to import module types.
-- A **consumer** module (`modules/onboarding`) declares the slice it needs as
-  **consumer-owned ports** in its own `*.ports.ts` (types only, enforced),
-  and its `index.ts` wires `fastify.userService` into its service. TypeScript
-  verifies _structurally_, at that line, that the published service satisfies
-  the port — no shared interface file, no import between the modules.
-- `app.ts` registers publishers before consumers; entities still never cross
-  the boundary — ids and plain inputs do.
+  prefix internally.
+- `src/types/fastify.d.ts` types each decoration as **the contract, not the
+  service**. That is what makes the boundary real rather than advisory:
+  `fastify.userService.setAvatar(...)` from an unrelated module is a compile
+  error (`Property 'setAvatar' does not exist on type 'UserPublicApi'`), not a
+  violation that no tool can see.
+- A **consumer** module (`modules/onboarding`) imports those contract types
+  directly and wires `fastify.userService` into its service in `index.ts`. The
+  import is a real edge, so dependency-cruiser polices it; `find all references`
+  on a contract finds every consumer.
+- `app.ts` registers publishers before consumers; entities never cross the
+  boundary — the contract only admits ids and plain inputs.
+
+**Ports and contracts are not the same thing** and must not be merged:
+
+| | `*.ports.ts` | `*.contract.ts` |
+| --- | --- | --- |
+| Direction | what the module **needs** | what the module **offers** |
+| Purpose | invert an outbound infrastructure dependency (S3, cache, mail) | publish a capability to sibling modules |
+| Implementations | several, deliberately (real, in-memory, …) | one, forever |
+| May import | domain + pure lib | pure lib only |
+
+A capability another module owns is a contract, never a port. The rules enforce
+this: `port-is-types-only` does not permit a port to import a contract.
 
 `modules/onboarding` is the live reference: one user action that spans three
-modules (mark user onboarded → create welcome task) with zero cross-module
-imports, unit-tested with five-line port fakes.
+modules (mark user onboarded → create welcome task), importing two contract
+types and nothing else, unit-tested with five-line contract fakes.
 
 ### Outbound infrastructure: plugin → port → adapter
 
@@ -260,6 +281,10 @@ ADR in [docs/adr/](docs/adr/).
 - **No DI container** (ADR-0002). Explicit wiring in two small composition
   roots replaces Awilix: the object graph is compiler-checked, "find all
   references" works, and no generator is needed to keep wiring safe.
+- **No consumer-owned ports for peer modules** (ADR-0006). A capability another
+  module owns is published by that module as a `*.contract.ts` and imported
+  directly; re-declaring its signature per consumer costs duplication and buys
+  a rule no tool can enforce.
 - **No global horizontal layers** (ADR-0001). `use_cases/`-style top-level
   trees scale by layer; modules scale by feature. Deleting a feature is
   deleting a folder.
@@ -286,7 +311,9 @@ Work inside-out; the boundaries hold you to it (`npm run check`).
 1. **Domain** — `<name>.entity.ts` + `<name>.errors.ts`: types, rules, named
    errors. Unit-test them directly.
 2. **Port** — `<name>.repository.ts`: the narrowest interface the use cases
-   need, in domain vocabulary.
+   need, in domain vocabulary. If the feature also offers something to other
+   modules, add `<name>.contract.ts` — ids and plain inputs only — and type the
+   decoration with it in `src/types/fastify.d.ts`.
 3. **Service** — `<name>.service.ts`: use cases against the port + clock.
    Unit-test with an in-memory port implementation.
 4. **Schema** — `schema.prisma` model + `npm run prisma:migrate:create`

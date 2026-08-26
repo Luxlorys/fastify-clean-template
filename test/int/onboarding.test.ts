@@ -6,7 +6,7 @@ import type { FastifyInstance } from "fastify";
 /**
  * The cross-module wiring, proven end to end over HTTP: the onboarding
  * module drives the user module and the task module through the decorations,
- * with zero imports between the three folders.
+ * importing only the two published contract types.
  */
 describe("POST /api/onboarding/complete", () => {
     let app: FastifyInstance;

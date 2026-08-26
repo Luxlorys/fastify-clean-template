@@ -3,15 +3,13 @@ import { onboardingRoutes } from "./onboarding.routes.js";
 import type { FastifyPluginAsync } from "fastify";
 
 /**
- * A CONSUMER module. Look at what is absent: no import from modules/user or
- * modules/task anywhere in this folder. The dependencies arrive as runtime
- * values on the Fastify instance (decorated by the publisher modules, which
- * app.ts registers before this one).
+ * A CONSUMER module. It imports the user and task modules' *.contract.ts for
+ * the types, and receives the implementations as decorations the publisher
+ * modules put on the instance (app.ts registers them first).
  *
- * The two lines below are where TypeScript checks — structurally — that the
- * published services satisfy this module's own ports (onboarding.ports.ts).
- * If the user module ever changes a field onboarding relies on, THESE lines
- * stop compiling.
+ * The decorations are already typed as those same contracts in
+ * src/types/fastify.d.ts, so the two lines below are a plain, checked
+ * assignment: if a contract changes, this stops compiling.
  */
 export const onboardingModule: FastifyPluginAsync = async (fastify) => {
     const service = createOnboardingService({

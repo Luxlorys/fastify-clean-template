@@ -29,20 +29,26 @@ task, stop and ask; do not add exemptions to `.dependency-cruiser.cjs`.
 
 1. **Follow the file roles.** Inside `src/modules/<name>/`: `*.entity.ts` /
    `*.errors.ts` (pure domain), `*.repository.ts` (port), `*.ports.ts`
-   (outbound ports — other modules' capabilities, storage, …),
+   (outbound infrastructure ports — storage, cache, mail),
+   `*.contract.ts` (the module's public API — the only file other modules may
+   import),
    `*.repository.prisma.ts` and `*.storage.s3.ts` (adapters), `*.service.ts`
    (use cases), `*.schema.ts` + `*.routes.ts` (interface), `index.ts`
    (wiring). The boundary rules match on these names — a file outside the
    convention silently escapes its layer's checks. A new adapter technology
    (Redis cache, mail, …) means a new role suffix plus its rules in
    `.dependency-cruiser.cjs`, mirroring the S3 pair.
-   1a. **Cross-module use goes through decorations, never imports.** A module
-   offering a capability publishes its service as a decoration (see
-   `modules/user/index.ts` — fp-wrapped, mounts its own prefix, typed in
-   `src/types/fastify.d.ts`). A module consuming one declares its own port in
-   `*.ports.ts` and wires `fastify.<x>Service` in its `index.ts` (see
-   `modules/onboarding`). Entities never cross module borders — ids and plain
-   inputs do.
+   1a. **Cross-module use goes through the provider's contract.** A module
+   offering a capability writes `<name>.contract.ts` (pure types over ids and
+   plain inputs, no entities) and publishes its service as a decoration (see
+   `modules/user/index.ts` — fp-wrapped, mounts its own prefix). The decoration
+   is typed as **the contract, not the service**, in `src/types/fastify.d.ts` —
+   that is what stops unrelated modules reaching into it. A consumer imports the
+   contract type directly and wires `fastify.<x>Service` in its `index.ts` (see
+   `modules/onboarding`). Never re-declare a provider's signature in your own
+   `*.ports.ts`: ports are for infrastructure you implement several ways,
+   contracts are for capabilities another module owns. Entities never cross
+   module borders — ids and plain inputs do.
 2. **SDKs only in adapters.** Prisma lives in `*.repository.prisma.ts` (plus
    `plugins/database.ts` and test factories); `@aws-sdk/*` lives in
    `*.storage.s3.ts` (plus `plugins/s3.ts`). Services never see SDK types;

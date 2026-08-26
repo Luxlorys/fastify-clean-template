@@ -1,21 +1,21 @@
 import { describe, expect, it } from "vitest";
 import { createOnboardingService } from "@/modules/onboarding/onboarding.service.js";
 import { UserAlreadyOnboardedError } from "@/modules/user/user.errors.js";
-import type {
-    TaskCreator,
-    UserOnboarder,
-} from "@/modules/onboarding/onboarding.ports.js";
+import type { TaskPublicApi } from "@/modules/task/task.contract.js";
+import type { UserPublicApi } from "@/modules/user/user.contract.js";
 
 /**
- * The consumer-port payoff in test form: the "user module" and "task module"
- * here are a few lines each, because the service depends on two tiny ports —
- * not on other modules, not on Fastify decorations, not on mocks.
+ * The narrow-contract payoff in test form: the "user module" and "task module"
+ * here are a few lines each, because the service depends on two published
+ * contracts — not on the real services, not on Fastify decorations, not on
+ * mocks. Because these are the same types the modules publish, a contract
+ * change breaks this file too, which is the point.
  */
 describe("completeOnboarding", () => {
     it("marks the user onboarded, then creates a personalized welcome task", async () => {
         const calls: string[] = [];
 
-        const users: UserOnboarder = {
+        const users: UserPublicApi = {
             markOnboarded: async (userId) => {
                 calls.push(`onboard:${userId}`);
 
@@ -23,7 +23,7 @@ describe("completeOnboarding", () => {
             },
         };
 
-        const tasks: TaskCreator = {
+        const tasks: TaskPublicApi = {
             createTask: async ({ title }) => {
                 calls.push(`task:${title}`);
 
@@ -45,13 +45,13 @@ describe("completeOnboarding", () => {
     it("propagates the user module's rule and creates no task", async () => {
         let taskCreated = false;
 
-        const users: UserOnboarder = {
+        const users: UserPublicApi = {
             markOnboarded: async () => {
                 throw new UserAlreadyOnboardedError();
             },
         };
 
-        const tasks: TaskCreator = {
+        const tasks: TaskPublicApi = {
             createTask: async () => {
                 taskCreated = true;
 
