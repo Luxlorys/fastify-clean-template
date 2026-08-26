@@ -1,4 +1,6 @@
 import fp from "fastify-plugin";
+import { createRedisTaskCache } from "./task.cache.redis.js";
+import { createCachedTaskRepository } from "./task.repository.cached.js";
 import { createPrismaTaskRepository } from "./task.repository.prisma.js";
 import { createTaskService } from "./task.service.js";
 import { taskRoutes } from "./task.routes.js";
@@ -17,7 +19,13 @@ import type { FastifyInstance } from "fastify";
  * encapsulation; the routes are re-encapsulated with their prefix below.
  */
 const taskModule = async (fastify: FastifyInstance) => {
-    const repository = createPrismaTaskRepository(fastify.prisma);
+    // Caching is a decorator over the port, so it is added — or removed —
+    // here and nowhere else. The service below is identical either way.
+    const repository = createCachedTaskRepository(
+        createPrismaTaskRepository(fastify.prisma),
+        createRedisTaskCache(fastify.redis, fastify.config.CACHE_TTL_SECONDS),
+    );
+
     const service = createTaskService({ repository, clock: systemClock });
 
     fastify.decorate("taskService", service);

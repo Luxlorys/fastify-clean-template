@@ -85,11 +85,72 @@ owns the client lifecycle.**
   `test/int/user.storage.s3.test.ts` + `test/int/setup/minio.ts` (adapter
   contract against MinIO — a real S3 API, no AWS account needed).
 
-To add another technology (a mail sender, a Redis cache, a payment client),
-copy that six-piece shape with a new role suffix (`*.mailer.ses.ts`,
-`*.cache.redis.ts`) and its dependency-cruiser pair. Presigned URLs, when
-needed, are one more port method (`signedReadUrl`) implemented in the adapter
-with `@aws-sdk/s3-request-presigner`.
+To add another technology (a mail sender, a payment client), copy that
+six-piece shape with a new role suffix (`*.mailer.ses.ts`) and its
+dependency-cruiser pair. Presigned URLs, when needed, are one more port method
+(`signedReadUrl`) implemented in the adapter with
+`@aws-sdk/s3-request-presigner`.
+
+---
+
+## 2b. Caching an entity (Redis)
+
+Also in the code — read `modules/task`. Caching is the plugin/port/adapter
+shape above **plus a decorator**, and the decorator is what keeps caching out
+of the use cases:
+
+| Piece         | File                                     | Owns                                                                                                                                                                                                                    |
+| ------------- | ---------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Plugin**    | `src/plugins/redis.ts`                   | The client lifecycle only. `lazyConnect` so boot does not depend on Redis; `maxRetriesPerRequest: 1` so an outage costs one failure, not twenty retries; an `error` listener because an unhandled one is fatal in Node. |
+| **Port**      | `modules/task/task.ports.ts`             | `TaskCache.read/write/forget` — the module's words. No `get`, `set` or `expire`.                                                                                                                                        |
+| **Adapter**   | `modules/task/task.cache.redis.ts`       | Key layout (`task:v1:<id>`), the TTL, the JSON codec with Date revival, and the failure policy. The only file importing `ioredis`.                                                                                      |
+| **Decorator** | `modules/task/task.repository.cached.ts` | Read-through logic. Implements `TaskRepository`, wraps a `TaskRepository` and a `TaskCache`. Imports no SDK.                                                                                                            |
+
+`index.ts` is the only place that knows caching happens:
+
+```ts
+const repository = createCachedTaskRepository(
+    createPrismaTaskRepository(fastify.prisma),
+    createRedisTaskCache(fastify.redis, fastify.config.CACHE_TTL_SECONDS),
+);
+```
+
+Delete those two wrapper lines and the module is uncached — the service,
+routes and tests do not change. That is the reason to prefer a decorator over
+an `if (cached)` inside a use case.
+
+Five rules that carry the design:
+
+- **Invalidate on the write path.** `save()` calls `forget()`. The failure mode
+  of hand-rolled caching is always a write that busts nothing; putting the bust
+  in the same function as the write makes it hard to forget.
+- **Never cache a list.** Cursor-paginated, filtered results mean one write
+  invalidates an unbounded set of pages. Cache entities by id.
+- **Version the key.** A blob outlives a deploy. Bump `v1` when the entity's
+  shape changes; a blob that no longer parses is a miss, not a 500.
+- **A cache outage degrades, it does not fail.** The adapter catches: `read`
+  returns null and the request falls through to Postgres. Proved against a dead
+  server in `test/int/task.cache.redis.test.ts`.
+- **The TTL bounds a lost invalidation.** `forget` is best effort — throwing
+  would fail a request whose database write already committed. So
+  `CACHE_TTL_SECONDS` is the worst-case staleness. If a use case needs
+  guaranteed invalidation, it needs an outbox, not a bigger try/catch.
+
+Tests: `test/unit/task.repository.cached.test.ts` covers the caching logic with
+two in-memory implementations and no container (a counting repository makes a
+cache _hit_ observable); `test/int/task.cache.redis.test.ts` pins the adapter
+contract against a real Redis — Date revival, TTL, a stale-shape blob, and the
+outage path. When the port's semantics change, update the in-memory
+implementation and the adapter test together.
+
+**Pub/sub and streams are a different recipe, not this one.** Publishing is an
+outbound port like any other, but a subscriber is a _second entry point_ into
+the app — it belongs beside routes in `index.ts`, translating a message into a
+call on the module's own service. Two things to know before reaching for it:
+Redis pub/sub has no persistence and no ack, so a subscriber that is down
+during a deploy loses those messages permanently (use Streams with consumer
+groups, or a real queue, for anything that must happen); and a subscribing
+connection is blocked, so it needs `redis.duplicate()`, not the shared client.
 
 ---
 

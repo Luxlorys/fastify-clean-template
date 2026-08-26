@@ -10,6 +10,8 @@
  *   *.service.ts             application      — entity + port + lib only
  *   *.repository.prisma.ts   adapter          — implements the port, owns Prisma
  *   *.storage.s3.ts          adapter          — implements a storage port, owns @aws-sdk
+ *   *.cache.redis.ts         adapter          — implements a cache port, owns ioredis
+ *   *.repository.cached.ts   port decorator   — wraps a port with another port; no SDK
  *   *.repository.ts          port             — types only
  *   *.ports.ts               outbound ports   — types only (storage, cache, mail — infrastructure)
  *   *.contract.ts            public API       — types only; the ONLY file other modules may import
@@ -44,6 +46,18 @@ const CONTRACT_ALLOWED = "^src/lib/(errors|clock|pagination)\\.ts$";
 /** What an adapter may depend on: domain, port, the generated Prisma client, pure lib. */
 const ADAPTER_ALLOWED =
     "^src/modules/[^/]+/[^/]+\\.(entity|errors|repository)\\.ts$|^src/generated/|^src/lib/(errors|clock|pagination)\\.ts$";
+
+/** What a cache adapter may depend on: domain, its ports, ioredis, pure lib. */
+const CACHE_ADAPTER_ALLOWED =
+    "^src/modules/[^/]+/[^/]+\\.(entity|errors|repository|ports)\\.ts$|^src/lib/(errors|clock|pagination)\\.ts$|^node_modules/ioredis";
+
+/**
+ * What a port decorator may depend on: the ports it composes, the domain, pure
+ * lib. Same purity as a service — a decorator that reached for an SDK would be
+ * an adapter wearing the wrong name.
+ */
+const PORT_DECORATOR_ALLOWED =
+    "^src/modules/[^/]+/[^/]+\\.(entity|errors|repository|ports)\\.ts$|^src/lib/(errors|clock|pagination)\\.ts$";
 
 /** What a storage adapter may depend on: domain, its ports, the AWS SDK, pure lib (node builtins are exempted in the rule itself). */
 const STORAGE_ADAPTER_ALLOWED =
@@ -115,6 +129,38 @@ module.exports = {
             to: { pathNot: STORAGE_ADAPTER_ALLOWED, dependencyTypesNot: ["core"] },
         },
         {
+            name: "cache-adapter-stays-below",
+            severity: "error",
+            comment:
+                "A cache adapter implements its port; it may not reach up into services, routes or " +
+                "schemas, and it may not import Fastify or Prisma.",
+            from: { path: "^src/modules/[^/]+/[^/]+\\.cache\\.redis\\.ts$" },
+            to: { pathNot: CACHE_ADAPTER_ALLOWED, dependencyTypesNot: ["core"] },
+        },
+        {
+            name: "port-decorator-stays-pure",
+            severity: "error",
+            comment:
+                "A *.repository.cached.ts decorator composes ports and returns a port. It may not " +
+                "import an SDK, an adapter, a service or a framework — that purity is what lets the " +
+                "unit lane cover caching with no container.",
+            from: { path: "^src/modules/[^/]+/[^/]+\\.repository\\.cached\\.ts$" },
+            to: { pathNot: PORT_DECORATOR_ALLOWED },
+        },
+        {
+            name: "redis-only-in-cache-adapters",
+            severity: "error",
+            comment:
+                "ioredis may be imported only by *.cache.redis.ts adapters, the redis plugin " +
+                "(client lifecycle), the fastify type augmentation, and tests. Everything else " +
+                "programs against a port — the cache twin of prisma-only-in-adapters.",
+            from: {
+                pathNot:
+                    "\\.cache\\.redis\\.ts$|^src/plugins/redis\\.ts$|^src/types/fastify\\.d\\.ts$|^test/",
+            },
+            to: { path: "^node_modules/ioredis" },
+        },
+        {
             name: "aws-sdk-only-in-storage-adapters",
             severity: "error",
             comment:
@@ -146,7 +192,9 @@ module.exports = {
                 "Only a module's index.ts (its composition root) and tests may instantiate an adapter. " +
                 "Everything else programs against the port.",
             from: { pathNot: "(^|/)index\\.ts$|^test/" },
-            to: { path: "\\.repository\\.prisma\\.ts$|\\.storage\\.s3\\.ts$" },
+            to: {
+                path: "\\.repository\\.prisma\\.ts$|\\.storage\\.s3\\.ts$|\\.cache\\.redis\\.ts$|\\.repository\\.cached\\.ts$",
+            },
         },
         {
             name: "modules-are-islands",

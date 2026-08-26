@@ -51,9 +51,17 @@ task, stop and ask; do not add exemptions to `.dependency-cruiser.cjs`.
    module borders — ids and plain inputs do.
 2. **SDKs only in adapters.** Prisma lives in `*.repository.prisma.ts` (plus
    `plugins/database.ts` and test factories); `@aws-sdk/*` lives in
-   `*.storage.s3.ts` (plus `plugins/s3.ts`). Services never see SDK types;
+   `*.storage.s3.ts` (plus `plugins/s3.ts`); `ioredis` lives in
+   `*.cache.redis.ts` (plus `plugins/redis.ts`). Services never see SDK types;
    ports speak the module's vocabulary — purpose in the port
-   (`uploadAvatar`), technology in the adapter (buckets, keys, commands).
+   (`uploadAvatar`, `read`/`write`/`forget`), technology in the adapter
+   (buckets, keys, commands, TTLs).
+   2a. **Caching is a port decorator, never a branch in a service.**
+   `*.repository.cached.ts` wraps a repository port plus a cache port and
+   returns the repository port; only `index.ts` wires it. Invalidate on the
+   write path, cache entities by id, never cache paginated lists, and version
+   the key prefix so a shape change cannot meet an old blob. The adapter — not
+   the decorator — is where a cache outage is swallowed.
 3. **Services stay framework-free**: no Fastify, no Zod, no HTTP concepts, no
    status codes, no wire envelopes. Inputs/outputs are the service's own
    declared types.

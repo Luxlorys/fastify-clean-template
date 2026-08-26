@@ -13,7 +13,11 @@ export default defineConfig({
         include: ["test/int/**/*.test.ts"],
         environment: "node",
         globalSetup: ["test/int/setup/global.ts"],
-        setupFiles: ["test/int/setup/env.ts", "test/int/setup/reset-db.ts"],
+        setupFiles: [
+            "test/int/setup/env.ts",
+            "test/int/setup/reset-db.ts",
+            "test/int/setup/reset-redis.ts",
+        ],
         maxWorkers: INT_TEST_WORKERS,
         hookTimeout: 120_000,
         testTimeout: 30_000,

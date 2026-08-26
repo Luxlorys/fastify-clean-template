@@ -1,5 +1,6 @@
 import { inject } from "vitest";
 import { MINIO_CREDENTIALS, TEST_AVATARS_BUCKET } from "./minio.js";
+import { withRedisDatabase } from "./redis.js";
 import { withDatabase, workerDatabaseName } from "./workers.js";
 
 // Each vitest worker owns one of the databases cloned in global.ts, so files
@@ -18,3 +19,7 @@ process.env.S3_ENDPOINT = inject("s3Endpoint");
 process.env.S3_AVATARS_BUCKET = TEST_AVATARS_BUCKET;
 process.env.S3_ACCESS_KEY_ID = MINIO_CREDENTIALS.accessKeyId;
 process.env.S3_SECRET_ACCESS_KEY = MINIO_CREDENTIALS.secretAccessKey;
+
+// Each worker gets its own Redis logical database, flushed between tests by
+// reset-redis.ts — the cache twin of the per-worker Postgres database above.
+process.env.REDIS_URL = withRedisDatabase(inject("redisUri"), poolId);
