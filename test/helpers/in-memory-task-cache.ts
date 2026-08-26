@@ -3,12 +3,13 @@ import type { TaskCache } from "@/modules/task/task.ports.js";
 
 /**
  * A genuine implementation of the TaskCache port, not a mock. It honors the
- * same contract the Redis adapter honors — a miss is null, a write replaces,
- * a forget removes — so the decorator's unit tests run the production code
- * path with the container swapped out.
+ * same contract the Redis implementation honors — a miss is null, a write
+ * replaces, a forget removes — so the service's unit tests run the production
+ * code path with the container swapped out.
  *
- * `reads` is exposed so a test can assert the database was NOT consulted,
- * which is the whole point of a cache and cannot be observed from the result.
+ * `reads` and `keys` are exposed so a test can assert the database was NOT
+ * consulted, which is the whole point of a cache and cannot be observed from
+ * the result alone.
  */
 export const createInMemoryTaskCache = (): TaskCache & {
     reads: () => number;
@@ -40,7 +41,10 @@ export const createInMemoryTaskCache = (): TaskCache & {
 /**
  * A cache that is always down: every operation rejects. The port's contract
  * says a broken cache degrades to the source of truth rather than failing the
- * request, and that promise is only worth having if a test holds it.
+ * request — a promise kept by the Redis implementation, which catches, and
+ * pinned against a dead server in test/int/task.cache.repository.test.ts.
+ * Deliberately NOT swallowed by the service: a broken port implementation
+ * hidden behind a silent fallback in the caller is a bug no test would see.
  */
 export const createBrokenTaskCache = (): TaskCache => ({
     read: async () => {

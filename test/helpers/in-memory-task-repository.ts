@@ -1,13 +1,13 @@
 import { systemClock } from "@/lib/clock.js";
 import type { Clock } from "@/lib/clock.js";
 import type { Task } from "@/modules/task/task.entity.js";
-import type { TaskRepository } from "@/modules/task/task.repository.js";
+import type { TaskRepository } from "@/modules/task/task.ports.js";
 
 /**
  * A genuine implementation of the TaskRepository port, not a mock: it honors
- * the same contract as the Prisma adapter (auto-incrementing ids, newest-first
- * ordering, cursor semantics). Unit tests exercising the service against this
- * run the same code paths production does — minus the database.
+ * the same contract as the Prisma implementation (auto-incrementing ids,
+ * newest-first ordering, cursor semantics). Unit tests exercising the service
+ * against this run the same code paths production does — minus the database.
  */
 export const createInMemoryTaskRepository = (
     clock: Clock = systemClock,

@@ -7,7 +7,7 @@ import {
     toUserResponse,
 } from "./user.schema.js";
 import { errorResponseSchema } from "@/lib/schemas.js";
-import type { UserService } from "./user.service.js";
+import type { UserService } from "./user.ports.js";
 import type { FastifyPluginAsyncZod } from "fastify-type-provider-zod";
 
 const USER_TAG = "users";
@@ -55,7 +55,6 @@ export const userRoutes =
             },
         );
 
-        // Binary uploads need a parser; scoped to this module's routes only.
         fastify.addContentTypeParser(
             [...AVATAR_CONTENT_TYPES],
             { parseAs: "buffer" },
@@ -83,7 +82,6 @@ export const userRoutes =
                 },
             },
             async (request) => {
-                // The scoped parser above guarantees a Buffer body.
                 const body = request.body as Buffer;
 
                 const user = await service.setAvatar({

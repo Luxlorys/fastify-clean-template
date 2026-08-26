@@ -14,10 +14,6 @@ export type NewUser = {
     name: string;
 };
 
-/**
- * Creation has no state- or time-dependent rules, so there is no draftUser()
- * — not every entity needs one. Onboarding does have a rule: it happens once.
- */
 export const markOnboarded = (user: User, now: Date): User => {
     if (user.onboardedAt !== null) {
         throw new UserAlreadyOnboardedError();

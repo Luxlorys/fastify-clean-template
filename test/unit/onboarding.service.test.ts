@@ -1,14 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { createOnboardingService } from "@/modules/onboarding/onboarding.service.js";
 import { UserAlreadyOnboardedError } from "@/modules/user/user.errors.js";
-import type { TaskPublicApi } from "@/modules/task/task.contract.js";
-import type { UserPublicApi } from "@/modules/user/user.contract.js";
+import type { TaskPublicApi } from "@/modules/task/task.ports.js";
+import type { UserPublicApi } from "@/modules/user/user.ports.js";
 
 /**
  * The narrow-contract payoff in test form: the "user module" and "task module"
  * here are a few lines each, because the service depends on two published
- * contracts — not on the real services, not on Fastify decorations, not on
- * mocks. Because these are the same types the modules publish, a contract
+ * APIs — not on the real services, not on Fastify decorations, not on
+ * mocks. Because these are the same types the modules publish, a published-API
  * change breaks this file too, which is the point.
  */
 describe("completeOnboarding", () => {

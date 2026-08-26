@@ -1,13 +1,13 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { createPrismaTaskRepository } from "@/modules/task/task.repository.prisma.js";
+import { createPrismaTaskRepository } from "@/modules/task/task.prisma.repository.js";
 import { TaskNotFoundError } from "@/modules/task/task.errors.js";
 import { buildTestApp } from "./helpers/build-test-app.js";
 import { createTasks } from "./factories/task.factory.js";
 import type { FastifyInstance } from "fastify";
-import type { TaskRepository } from "@/modules/task/task.repository.js";
+import type { TaskRepository } from "@/modules/task/task.ports.js";
 
 /**
- * Adapter tests: the Prisma implementation of the port against a real
+ * Implementation tests: the Prisma implementation of the port against a real
  * Postgres. These verify the contract the in-memory implementation mirrors —
  * ordering, cursor semantics, error translation.
  */

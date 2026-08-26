@@ -12,3 +12,4 @@ changed, supersede the ADR; don't quietly drift.
 | [0004](0004-errors.md)           | Domain errors without status codes; no message catalog; no envelope |
 | [0005](0005-testing.md)          | Two test lanes; in-memory ports instead of mocks                    |
 | [0006](0006-module-contracts.md) | Published module contracts instead of consumer-owned ports          |
+| [0007](0007-one-ports-file.md)   | One `*.ports.ts` per module; implementations named by technology     |

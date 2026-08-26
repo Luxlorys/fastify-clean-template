@@ -1,10 +1,10 @@
 import { Redis } from "ioredis";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { createRedisTaskCache } from "@/modules/task/task.cache.redis.js";
+import { createRedisTaskCache } from "@/modules/task/task.cache.repository.js";
 import type { Task } from "@/modules/task/task.entity.js";
 
 /**
- * Adapter contract test: the Redis implementation of the TaskCache port
+ * Implementation contract test: the Redis implementation of the TaskCache port
  * against a real server. This is the half the unit lane cannot cover — the
  * JSON codec, the TTL, and the promise that a cache outage returns null
  * instead of throwing.

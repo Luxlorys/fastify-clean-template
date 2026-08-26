@@ -1,6 +1,6 @@
 import { EmailTakenError, UserNotFoundError } from "./user.errors.js";
 import type { User } from "./user.entity.js";
-import type { UserRepository } from "./user.repository.js";
+import type { UserRepository } from "./user.ports.js";
 import type { PrismaClient, User as UserRow } from "@/generated/prisma/client.js";
 
 const toUser = (row: UserRow): User => ({
@@ -60,7 +60,6 @@ export const createPrismaUserRepository = (
     },
 });
 
-/** P2002 = unique constraint violation, P2025 = record to update not found. */
 const isPrismaError = (error: unknown, code: string): boolean => {
     return (
         typeof error === "object" &&

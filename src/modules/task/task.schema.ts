@@ -2,12 +2,6 @@ import { z } from "zod";
 import { TASK_STATUSES } from "./task.entity.js";
 import type { Task } from "./task.entity.js";
 
-/**
- * The HTTP contract: request/response schemas and the mapping from domain
- * objects to wire shapes. This is the only layer that decides how a Task
- * looks as JSON — services return Tasks, never wire shapes. A column rename
- * stays invisible here; an API change stays out of the domain.
- */
 export const createTaskBodySchema = z.object({
     title: z.string().trim().min(1).max(200),
     dueDate: z.coerce.date().optional(),
@@ -40,7 +34,6 @@ export const taskPageResponseSchema = z.object({
     nextCursor: z.number().int().nullable(),
 });
 
-/** Domain → wire. The one place a Task is turned into JSON-safe values. */
 export const toTaskResponse = (task: Task): TaskResponse => ({
     id: task.id,
     title: task.title,

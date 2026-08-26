@@ -4,15 +4,6 @@ import {
     TaskArchivedError,
 } from "./task.errors.js";
 
-/**
- * The domain core of the module: plain types and pure functions, no I/O.
- * This file must never import Fastify, Zod or Prisma — the boundary is
- * enforced by dependency-cruiser (`npm run boundaries`).
- *
- * Business rules live here as state-transition functions. Structural
- * validation (title length, types) belongs to the request schema; rules that
- * depend on state or time belong here.
- */
 export const TASK_STATUSES = ["open", "done", "archived"] as const;
 
 export type TaskStatus = (typeof TASK_STATUSES)[number];
@@ -25,7 +16,6 @@ export type Task = {
     createdAt: Date;
 };
 
-/** A task that has passed the creation rules but has not been persisted yet. */
 export type NewTask = {
     title: string;
     status: TaskStatus;
@@ -57,7 +47,6 @@ export const completeTask = (task: Task): Task => {
     return { ...task, status: "done" };
 };
 
-/** Archiving is idempotent: archiving an archived task is a no-op. */
 export const archiveTask = (task: Task): Task => {
     if (task.status === "archived") {
         return task;

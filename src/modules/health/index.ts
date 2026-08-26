@@ -6,12 +6,6 @@ const healthResponseSchema = z.object({
     database: z.enum(["up", "down"]),
 });
 
-/**
- * Health reports on the process, not on a business capability, so it is the
- * one route allowed to skip the service layer and touch infrastructure
- * directly. A module can be this small: when there is no domain, the module
- * is just its routes.
- */
 export const healthModule: FastifyPluginAsyncZod = async (fastify) => {
     fastify.get(
         "/",

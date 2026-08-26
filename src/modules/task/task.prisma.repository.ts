@@ -1,14 +1,8 @@
 import { TaskNotFoundError } from "./task.errors.js";
 import type { Task } from "./task.entity.js";
-import type { TaskRepository } from "./task.repository.js";
+import type { TaskRepository } from "./task.ports.js";
 import type { PrismaClient, Task as TaskRow } from "@/generated/prisma/client.js";
 
-/**
- * The Prisma ADAPTER for the TaskRepository port. This file is the only place
- * in the module where Prisma appears; rows are mapped to domain Tasks at this
- * boundary and Prisma types never leak upward. Queries — including `select`,
- * `where` and pagination mechanics — are decided here, not in the service.
- */
 const toTask = (row: TaskRow): Task => ({
     id: row.id,
     title: row.title,
@@ -77,11 +71,6 @@ export const createPrismaTaskRepository = (
     },
 });
 
-/**
- * Prisma's "record to update not found" error (P2025). Translated here so a
- * lost race between findById and save still surfaces as the module's own
- * error, and no Prisma error type escapes the adapter.
- */
 const isRecordNotFound = (error: unknown): boolean => {
     return (
         typeof error === "object" &&

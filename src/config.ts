@@ -14,7 +14,7 @@ const envSchema = z.object({
     DATABASE_URL: z.string().min(1),
     REDIS_URL: z.string().min(1),
     /** How long a cached entity stays readable — the bound on stale data if an
-     *  invalidation is ever lost (see modules/task/task.cache.redis.ts). */
+     *  invalidation is ever lost (see modules/task/task.cache.repository.ts). */
     CACHE_TTL_SECONDS: z.coerce.number().int().positive().default(60),
     DOCS_PASSWORD: z.string().min(1).optional(),
     RATE_LIMIT_MAX: z.coerce.number().int().positive().default(100),
