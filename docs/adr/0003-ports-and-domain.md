@@ -2,6 +2,12 @@
 
 ## Status
 
+Accepted, amended by [ADR-0008](0008-dto-at-the-application-boundary.md): the
+last Decision bullet below rejected a DTO between service and routes. That half
+is superseded — a service now returns a `<Name>Dto` and the entity stops at its
+edge. The rest of the bullet stands: `toTask` still maps the row inside the
+Prisma repository, and requests still arrive as the service's own input type.
+
 Accepted, amended by [ADR-0007](0007-one-ports-file.md): every abstract type a
 module owns now lives in one `*.ports.ts`, and implementations are named
 `<module>.<technology>.repository.ts`. What a port _is_ is unchanged — read

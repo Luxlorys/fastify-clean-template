@@ -295,6 +295,6 @@ case "production":
 ## 7. A success envelope, if a client contract demands one
 
 Envelopes are a wire-format decision, so they live entirely in the interface
-layer: wrap in the route (`return { data: toTaskResponse(task) }`) and in the
-response schema. Services keep returning domain objects — nothing below the
+layer: wrap in the route (`return { data: toTaskResponse(dto) }`) and in the
+response schema. Services keep returning DTOs — nothing below the
 routes changes, which is the whole point.

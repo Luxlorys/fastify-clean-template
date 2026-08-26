@@ -4,8 +4,13 @@ import {
     taskPageResponseSchema,
     taskParamsSchema,
     taskResponseSchema,
-    toTaskResponse,
 } from "./task.schema.js";
+import {
+    toCreateTaskInput,
+    toListTasksInput,
+    toTaskPageResponse,
+    toTaskResponse,
+} from "./task.dto.js";
 import { errorResponseSchema } from "@/lib/schemas.js";
 import type { TaskService } from "./task.ports.js";
 import type { FastifyPluginAsyncZod } from "fastify-type-provider-zod";
@@ -29,7 +34,9 @@ export const taskRoutes =
                 },
             },
             async (request, reply) => {
-                const task = await service.createTask(request.body);
+                const task = await service.createTask(
+                    toCreateTaskInput(request.body),
+                );
 
                 return reply.code(201).send(toTaskResponse(task));
             },
@@ -48,12 +55,11 @@ export const taskRoutes =
                 },
             },
             async (request) => {
-                const page = await service.listTasks(request.query);
+                const page = await service.listTasks(
+                    toListTasksInput(request.query),
+                );
 
-                return {
-                    items: page.items.map(toTaskResponse),
-                    nextCursor: page.nextCursor,
-                };
+                return toTaskPageResponse(page);
             },
         );
 

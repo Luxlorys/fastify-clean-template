@@ -19,17 +19,31 @@ export type TaskCache = {
     forget: (id: number) => Promise<void>;
 };
 
+export type TaskDto = {
+    id: number;
+    title: string;
+    status: TaskStatus;
+    dueDate: Date | null;
+    createdAt: Date;
+};
+
 export type CreateTaskInput = {
     title: string;
     dueDate?: Date | null;
 };
 
+export type ListTasksInput = {
+    limit: number;
+    cursor?: number;
+    status?: TaskStatus;
+};
+
 export type TaskService = {
-    createTask: (input: CreateTaskInput) => Promise<Task>;
-    getTask: (id: number) => Promise<Task>;
-    listTasks: (query: TaskListQuery) => Promise<Page<Task>>;
-    completeTask: (id: number) => Promise<Task>;
-    archiveTask: (id: number) => Promise<Task>;
+    createTask: (input: CreateTaskInput) => Promise<TaskDto>;
+    getTask: (id: number) => Promise<TaskDto>;
+    listTasks: (input: ListTasksInput) => Promise<Page<TaskDto>>;
+    completeTask: (id: number) => Promise<TaskDto>;
+    archiveTask: (id: number) => Promise<TaskDto>;
 };
 
 export type TaskServiceDeps = {

@@ -24,8 +24,9 @@ modules/task/
 ├── index.ts                   composition root
 ├── task.routes.ts   ┐
 ├── task.schema.ts   ┘         interface layer (Fastify + Zod)
-├── task.ports.ts              EVERY abstract type: outbound ports, the service
-│                              interface, and the public API siblings import
+├── task.ports.ts              EVERY abstract type: outbound ports, the DTO, the
+│                              service interface, and the public API siblings import
+├── task.dto.ts                the mappings: wire → input, domain → DTO → wire
 ├── task.service.ts            application layer (implements TaskService)
 ├── task.prisma.repository.ts  implements TaskRepository (Prisma)
 ├── task.cache.repository.ts   implements TaskCache (Redis)
@@ -39,8 +40,9 @@ flowchart TD
         IDX["index.ts<br/>composition root"]
         subgraph interface["interface layer"]
             R["task.routes.ts"]
-            SCH["task.schema.ts<br/>wire contract + mapping"]
+            SCH["task.schema.ts<br/>wire contract"]
         end
+        DTO["task.dto.ts<br/>wire → input, domain → DTO → wire"]
         SVC["task.service.ts<br/>use cases"]
         PORT["task.ports.ts<br/>(all abstract types)"]
         subgraph domain["domain"]
@@ -59,6 +61,9 @@ flowchart TD
     IDX --> CACHE
     R --> SCH
     R --> SVC
+    R -->|toCreateTaskInput / toTaskResponse| DTO
+    SVC -->|toTaskDto| DTO
+    DTO --> E
     SVC -->|consumes TaskRepository + TaskCache| PORT
     SVC --> E
     SVC -. implements TaskService .-> PORT
@@ -78,16 +83,17 @@ except `*.routes.ts` / `*.schema.ts` / `index.ts` has a dedicated rule in
 the cross-cutting rules below (`prisma-only-in-repositories`,
 `implementations-composed-only-at-the-root`, `modules-are-islands`).
 
-| Layer (file)                      | May import                                                                      | Must never import                                                 |
-| --------------------------------- | ------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
-| `*.entity.ts`, `*.errors.ts`      | each other, `lib/errors`, `lib/clock`, `lib/pagination`                         | **anything else** — no npm package, no Fastify, no Zod, no Prisma |
-| `*.ports.ts` (all abstract types) | domain files, other modules' `*.ports.ts`, pure lib                             | frameworks, SDKs, implementations, services                       |
-| `*.service.ts`                    | domain, its ports, other modules' ports, other services in its module, pure lib | Fastify, Zod, Prisma, ioredis, implementations, routes, schemas   |
-| `*.prisma.repository.ts`          | domain, its ports, `src/generated/prisma`, pure lib                             | Fastify, services, routes, schemas, other implementations         |
-| `*.cache.repository.ts`           | domain, its ports, `ioredis`, pure lib                                          | Fastify, Prisma, services, routes, schemas, other implementations |
-| `*.s3.repository.ts`              | domain, its ports, `@aws-sdk/*`, node builtins, pure lib                        | Fastify, Prisma, services, routes, schemas, other implementations |
-| `*.routes.ts`, `*.schema.ts`      | everything in the module except an implementation; `lib`                        | Prisma, other modules                                             |
-| `index.ts`                        | everything in its module                                                        | other modules' internals                                          |
+| Layer (file)                      | May import                                                                  | Must never import                                                 |
+| --------------------------------- | --------------------------------------------------------------------------- | ----------------------------------------------------------------- |
+| `*.entity.ts`, `*.errors.ts`      | each other, `lib/errors`, `lib/clock`, `lib/pagination`                     | **anything else** — no npm package, no Fastify, no Zod, no Prisma |
+| `*.ports.ts` (all abstract types) | domain files, other modules' `*.ports.ts`, pure lib                         | frameworks, SDKs, implementations, services                       |
+| `*.dto.ts` (transfer mappings)    | domain files, its `*.ports.ts`, pure lib                                    | Zod, Fastify, SDKs, implementations, services, routes, schemas    |
+| `*.service.ts`                    | domain, its ports, its DTO mappings, other modules' ports, sibling services | Fastify, Zod, Prisma, ioredis, implementations, routes, schemas   |
+| `*.prisma.repository.ts`          | domain, its ports, `src/generated/prisma`, pure lib                         | Fastify, services, routes, schemas, other implementations         |
+| `*.cache.repository.ts`           | domain, its ports, `ioredis`, pure lib                                      | Fastify, Prisma, services, routes, schemas, other implementations |
+| `*.s3.repository.ts`              | domain, its ports, `@aws-sdk/*`, node builtins, pure lib                    | Fastify, Prisma, services, routes, schemas, other implementations |
+| `*.routes.ts`, `*.schema.ts`      | everything in the module except an implementation; `lib`                    | Prisma, other modules                                             |
+| `index.ts`                        | everything in its module                                                    | other modules' internals                                          |
 
 Cross-cutting rules, also enforced:
 
@@ -255,37 +261,52 @@ Two rules keep this honest:
 
 ---
 
-## 2. The three shapes of data
+## 2. The four shapes of data
 
 One kind of object per boundary. TypeScript's structural typing does the
 conversion work cheaply, but the _types_ stay separate because the boundaries
 change for different reasons.
 
-| #   | Kind            | Lives in                | Built with                    | Purpose                                                                                        |
-| --- | --------------- | ----------------------- | ----------------------------- | ---------------------------------------------------------------------------------------------- |
-| 1   | **Wire shape**  | `*.schema.ts`           | Zod                           | The public HTTP contract: what is validated in and serialized out, and what OpenAPI documents. |
-| 2   | **Domain type** | `*.entity.ts`           | plain `type` + pure functions | The business object and its rules. The service's input/output vocabulary.                      |
-| 3   | **Row**         | Prisma generated client | `schema.prisma`               | The shape of a database row. A persistence detail.                                             |
+| #   | Kind            | Lives in                            | Built with                    | Purpose                                                                                        |
+| --- | --------------- | ----------------------------------- | ----------------------------- | ---------------------------------------------------------------------------------------------- |
+| 1   | **Wire shape**  | `*.schema.ts`                       | Zod                           | The public HTTP contract: what is validated in and serialized out, and what OpenAPI documents. |
+| 2   | **DTO**         | `*.ports.ts` (mapped in `*.dto.ts`) | plain `type` + mappers        | What a service takes and returns: the transfer models that cross interface ↔ application.      |
+| 3   | **Domain type** | `*.entity.ts`                       | plain `type` + pure functions | The business object and its rules. The vocabulary _inside_ a use case.                         |
+| 4   | **Row**         | Prisma generated client             | `schema.prisma`               | The shape of a database row. A persistence detail.                                             |
 
 Hard rules:
 
-- A **request body type never reaches a service.** Routes hand the service its
-  own declared input type (`CreateTaskInput`, declared in `task.ports.ts`
-  alongside the `TaskService` interface it belongs to). Today they are
-  structurally identical — the point is that when they diverge, only the route
-  changes.
-- A **service never returns a wire shape.** It returns domain types;
-  `toTaskResponse()` in `*.schema.ts` is the one place a `Task` becomes JSON
-  (dates → ISO strings).
+- A **request model never reaches a service.** The route maps it first:
+  `toCreateTaskInput(request.body)` and `toListTasksInput(request.query)` in
+  `task.dto.ts` turn the Zod-inferred shape into the service's own declared
+  input (`CreateTaskInput`, `ListTasksInput`, in `task.ports.ts` alongside the
+  `TaskService` interface they belong to). A handler never constructs a service
+  input inline either — `toSetAvatarInput(id, body, contentType)` assembles the
+  one that comes from three parts of the request. Only a bare scalar crosses
+  unmapped: `service.getTask(request.params.id)` has no model to convert.
+- A **service never returns an entity.** Every use case ends in `toTaskDto()`,
+  so a `Task` never reaches a route and the domain can be reshaped without
+  touching the API. Unlike the input rule above, this one _is_ checked: the
+  service's declared return type is `TaskDto`.
+- A **service never returns a wire shape either.** `toTaskResponse()` — the
+  same `task.dto.ts`, one hop later — is the one place a DTO becomes JSON
+  (dates → ISO strings), and the route is its only caller. The DTO carries
+  `Date`s on purpose: serialization is the wire's business, and a sibling
+  module reading a published capability should not have to parse dates back.
 - A **row never leaves the file that read it.** `toTask()` maps it inside
   `task.prisma.repository.ts`; `select`/`where`/query mechanics are decided
   there, not in the service. The cache implementation owes the same debt in the
   other direction — `task.cache.repository.ts` revives JSON strings back into
   `Date`s before a `Task` leaves it.
 
-**Convention, not enforced:** the boundary rules above police imports, but
-nothing stops a route passing `request.body` straight through. What keeps this
-honest is that the service declares its own input and output types.
+`task.dto.ts` is plain TypeScript — no Zod, no Fastify (`dto-stays-pure`) —
+which is what lets a framework-free service import it. So neither mapper names
+a Zod-inferred type: each declares the wire shape it accepts or produces as a
+plain structural type, and the route is where the two meet. `toTaskResponse()`
+is checked against the `response` schema; `toCreateTaskInput()` is checked
+against `request.body`. Change a schema without changing its mapper and the
+route stops compiling — which is why neither direction needs a rule of its own
+in `.dependency-cruiser.cjs`.
 
 ### One request, end to end
 
@@ -300,8 +321,24 @@ HTTP request
       → completeTask(task)      (domain: archived? already done?)
       → repository.save         (port) → UPDATE
       → cache.forget(id)        (port — invalidate on the write path)
-  → toTaskResponse(task)        (wire: Dates → ISO strings)
+      → toTaskDto(task)         (the entity stops here)
+  → toTaskResponse(dto)         (wire: Dates → ISO strings)
 HTTP 200 — or 404/409 mapped from the domain error by the error-handler plugin
+```
+
+That path carries only an id, so nothing is mapped on the way in. `POST
+/api/tasks` shows the other half:
+
+```
+HTTP request
+  → createTaskBodySchema            (Zod: valid title? coercible dueDate?)
+  → toCreateTaskInput(request.body) (wire → CreateTaskInput; undefined → null)
+  → service.createTask(input)       (application: the Zod type stops here)
+      → draftTask(input, now)       (domain: due date in the past?)
+      → repository.create           (port) → INSERT
+      → toTaskDto(task)             (the entity stops here)
+  → toTaskResponse(dto)             (wire: Dates → ISO strings)
+HTTP 201
 ```
 
 The query twin, `GET /api/tasks/:id`, is the one that reads the cache:
@@ -395,9 +432,12 @@ ADR in [docs/adr/](docs/adr/).
 - **No global horizontal layers** (ADR-0001). `use_cases/`-style top-level
   trees scale by layer; modules scale by feature. Deleting a feature is
   deleting a folder.
-- **No entity classes / no mandatory DTO ceremony** (ADR-0003). Domain =
-  types + pure functions; conversions exist only where representations
-  actually differ (wire ↔ domain ↔ row).
+- **No entity classes** (ADR-0003). Domain = types + pure functions, not
+  objects with methods.
+- **No DTO per layer** (ADR-0008). One `*.dto.ts` per module owns the
+  interface ↔ application boundary in both directions — the service's declared
+  inputs and its `<Name>Dto` return type. There is no third model per layer,
+  and a row is still mapped inside the file that read it.
 - **No dead code — infrastructure is either exercised or absent.** The S3
   integration ships because every line of it runs against MinIO in the
   integration lane; auth, transactions and typed JSON columns remain
@@ -428,28 +468,34 @@ Work inside-out; the boundaries hold you to it (`npm run check`).
    errors. Unit-test them directly.
 2. **Ports** — `<name>.ports.ts`: every abstract type the feature owns, in this
    order — the outbound ports (narrowest interface the use cases need, in
-   domain vocabulary), the `<Name>Service` interface, and last, if the feature
+   domain vocabulary), the `<Name>Dto` and input types, the `<Name>Service`
+   interface, and last, if the feature
    offers something to other modules, `<Name>PublicApi` over ids and plain
    inputs (type the decoration with it in `src/types/fastify.d.ts`). Keep the
    published API at the bottom: with no comments in the file, position is how a
    reader tells what may cross a module border.
-3. **Service** — `<name>.service.ts`: use cases against the ports + clock.
-   Unit-test with in-memory port implementations.
-4. **Schema** — `schema.prisma` model + `npm run prisma:migrate:create`
+3. **DTO** — `<name>.dto.ts`: `toXDto()` (domain → DTO) over the `<Name>Dto`
+   declared in step 2. Plain TypeScript; this is where you decide what leaves
+   the module at all. The input mappers join it in step 6.
+4. **Service** — `<name>.service.ts`: use cases against the ports + clock,
+   each ending in `toXDto()`. Unit-test with in-memory port implementations.
+5. **Schema** — `schema.prisma` model + `npm run prisma:migrate:create`
    (review the SQL) + `apply`; then the implementation
    `<name>.prisma.repository.ts` with its `toX()` mapper, and an integration
    test for the contract. Every port implementation is named
    `<module>.<technology>.repository.ts`, and its port type, factory and
    dependency key say the same thing the filename does (`AvatarRepository`,
    `createS3AvatarRepository`, `avatars`).
-5. **Interface** — `<name>.schema.ts` (wire shapes + `toXResponse`) and
-   `<name>.routes.ts` (schemas on routes, thin inline handlers).
-6. **Compose** — `index.ts` wires implementations → service → routes; register
+6. **Interface** — `<name>.schema.ts` (wire shapes), `toXInput()` and
+   `toXResponse()` added to `<name>.dto.ts` (wire → input, DTO → wire), and
+   `<name>.routes.ts` (schemas on routes, thin inline handlers that map both
+   ways and do nothing else).
+7. **Compose** — `index.ts` wires implementations → service → routes; register
    the module with its prefix in `src/app.ts`.
-7. `npm run check && npm run test:int`. The second is not optional once a
+8. `npm run check && npm run test:int`. The second is not optional once a
    `*.ports.ts` or a `*.<tech>.repository.ts` is involved — the unit lane never
    touches the real implementation.
 
-The `task` module is the reference implementation of all six steps; `user` adds
+The `task` module is the reference implementation of all eight steps; `user` adds
 a second port with a second technology, and `onboarding` shows a module with no
 infrastructure at all.

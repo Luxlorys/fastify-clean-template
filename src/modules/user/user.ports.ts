@@ -15,6 +15,20 @@ export type AvatarRepository = {
     }) => Promise<string>;
 };
 
+export type UserDto = {
+    id: number;
+    email: string;
+    name: string;
+    avatarKey: string | null;
+    onboardedAt: Date | null;
+    createdAt: Date;
+};
+
+export type CreateUserInput = {
+    email: string;
+    name: string;
+};
+
 export type SetAvatarInput = {
     id: number;
     body: Buffer;
@@ -22,10 +36,10 @@ export type SetAvatarInput = {
 };
 
 export type UserService = {
-    createUser: (input: NewUser) => Promise<User>;
-    getUser: (id: number) => Promise<User>;
-    markOnboarded: (id: number) => Promise<User>;
-    setAvatar: (input: SetAvatarInput) => Promise<User>;
+    createUser: (input: CreateUserInput) => Promise<UserDto>;
+    getUser: (id: number) => Promise<UserDto>;
+    markOnboarded: (id: number) => Promise<UserDto>;
+    setAvatar: (input: SetAvatarInput) => Promise<UserDto>;
 };
 
 export type UserServiceDeps = {

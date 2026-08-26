@@ -4,8 +4,8 @@ import {
     createUserBodySchema,
     userParamsSchema,
     userResponseSchema,
-    toUserResponse,
 } from "./user.schema.js";
+import { toCreateUserInput, toSetAvatarInput, toUserResponse } from "./user.dto.js";
 import { errorResponseSchema } from "@/lib/schemas.js";
 import type { UserService } from "./user.ports.js";
 import type { FastifyPluginAsyncZod } from "fastify-type-provider-zod";
@@ -29,7 +29,9 @@ export const userRoutes =
                 },
             },
             async (request, reply) => {
-                const user = await service.createUser(request.body);
+                const user = await service.createUser(
+                    toCreateUserInput(request.body),
+                );
 
                 return reply.code(201).send(toUserResponse(user));
             },
@@ -84,11 +86,13 @@ export const userRoutes =
             async (request) => {
                 const body = request.body as Buffer;
 
-                const user = await service.setAvatar({
-                    id: request.params.id,
-                    body,
-                    contentType: request.headers["content-type"],
-                });
+                const user = await service.setAvatar(
+                    toSetAvatarInput(
+                        request.params.id,
+                        body,
+                        request.headers["content-type"],
+                    ),
+                );
 
                 return toUserResponse(user);
             },

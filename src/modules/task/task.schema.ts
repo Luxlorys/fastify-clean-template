@@ -1,6 +1,5 @@
 import { z } from "zod";
 import { TASK_STATUSES } from "./task.entity.js";
-import type { Task } from "./task.entity.js";
 
 export const createTaskBodySchema = z.object({
     title: z.string().trim().min(1).max(200),
@@ -32,12 +31,4 @@ export type TaskResponse = z.infer<typeof taskResponseSchema>;
 export const taskPageResponseSchema = z.object({
     items: z.array(taskResponseSchema),
     nextCursor: z.number().int().nullable(),
-});
-
-export const toTaskResponse = (task: Task): TaskResponse => ({
-    id: task.id,
-    title: task.title,
-    status: task.status,
-    dueDate: task.dueDate === null ? null : task.dueDate.toISOString(),
-    createdAt: task.createdAt.toISOString(),
 });

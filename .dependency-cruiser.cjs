@@ -7,7 +7,8 @@
  *
  *   index.ts                 composition root — may see everything in the module
  *   *.routes.ts, *.schema.ts interface layer  — fastify + zod, calls the service
- *   *.service.ts             application      — entity + ports + lib only
+ *   *.dto.ts                 transfer mappings — domain → DTO → wire, plain TypeScript
+ *   *.service.ts             application      — entity + ports + dto + lib only
  *   *.prisma.repository.ts   implementation   — implements a repository port, owns Prisma
  *   *.cache.repository.ts    implementation   — implements a cache port, owns ioredis
  *   *.s3.repository.ts       implementation   — implements a storage port, owns @aws-sdk
@@ -39,9 +40,17 @@
 const DOMAIN_ALLOWED =
     "^src/modules/[^/]+/[^/]+\\.(entity|errors)\\.ts$|^src/lib/(errors|clock|pagination)\\.ts$";
 
-/** What a service may depend on: the domain, its ports, other modules' published APIs (also *.ports.ts), other services in its module, pure lib. */
+/** What a service may depend on: the domain, its ports, other modules' published APIs (also *.ports.ts), its DTO mappings, other services in its module, pure lib. */
 const SERVICE_ALLOWED =
-    "^src/modules/[^/]+/[^/]+\\.(entity|errors|service|ports)\\.ts$|^src/lib/(errors|clock|pagination)\\.ts$";
+    "^src/modules/[^/]+/[^/]+\\.(entity|errors|service|ports|dto)\\.ts$|^src/lib/(errors|clock|pagination)\\.ts$";
+
+/**
+ * What a *.dto.ts file may depend on: the domain it maps from, the *.ports.ts
+ * that declares the DTO type, and pure lib. A service returns DTOs, so this
+ * file has to stay as framework-free as the service — Zod in particular.
+ */
+const DTO_ALLOWED =
+    "^src/modules/[^/]+/[^/]+\\.(entity|errors|ports|dto)\\.ts$|^src/lib/(errors|clock|pagination)\\.ts$";
 
 /**
  * What a *.ports.ts file may depend on: the domain, pure lib types, and other
@@ -100,6 +109,18 @@ module.exports = {
                 "is behind either. This is what keeps use cases unit-testable with in-memory ports.",
             from: { path: "^src/modules/[^/]+/[^/]+\\.service\\.ts$" },
             to: { pathNot: SERVICE_ALLOWED },
+        },
+        {
+            name: "dto-stays-pure",
+            severity: "error",
+            comment:
+                "A *.dto.ts holds the two mappings around the transfer model — domain → DTO, which the " +
+                "service calls, and DTO → wire, which the route calls. Because the service imports it, " +
+                "it must stay plain TypeScript: no Zod, no Fastify, no SDK, no port implementation. " +
+                "The wire contract stays in *.schema.ts and type-checks toXResponse where the route " +
+                "returns it.",
+            from: { path: "^src/modules/[^/]+/[^/]+\\.dto\\.ts$" },
+            to: { pathNot: DTO_ALLOWED },
         },
         {
             name: "port-is-types-only",

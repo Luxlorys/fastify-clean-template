@@ -1,5 +1,4 @@
 import { z } from "zod";
-import type { User } from "./user.entity.js";
 
 export const createUserBodySchema = z.object({
     email: z.email().max(320),
@@ -26,12 +25,3 @@ export const userResponseSchema = z.object({
 });
 
 export type UserResponse = z.infer<typeof userResponseSchema>;
-
-export const toUserResponse = (user: User): UserResponse => ({
-    id: user.id,
-    email: user.email,
-    name: user.name,
-    avatarKey: user.avatarKey,
-    onboardedAt: user.onboardedAt === null ? null : user.onboardedAt.toISOString(),
-    createdAt: user.createdAt.toISOString(),
-});

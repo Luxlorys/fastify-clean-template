@@ -1,4 +1,5 @@
 import { markOnboarded } from "./user.entity.js";
+import { toUserDto } from "./user.dto.js";
 import { EmptyAvatarError, UserNotFoundError } from "./user.errors.js";
 import type { User } from "./user.entity.js";
 import type { UserService, UserServiceDeps } from "./user.ports.js";
@@ -8,7 +9,7 @@ export const createUserService = ({
     avatars,
     clock,
 }: UserServiceDeps): UserService => {
-    const getUser = async (id: number): Promise<User> => {
+    const loadUser = async (id: number): Promise<User> => {
         const user = await repository.findById(id);
 
         if (user === null) {
@@ -19,19 +20,23 @@ export const createUserService = ({
     };
 
     return {
-        createUser: async (input) => repository.create(input),
+        createUser: async (input) => toUserDto(await repository.create(input)),
 
-        getUser,
+        getUser: async (id) => toUserDto(await loadUser(id)),
 
         markOnboarded: async (id) =>
-            repository.save(markOnboarded(await getUser(id), clock.now())),
+            toUserDto(
+                await repository.save(
+                    markOnboarded(await loadUser(id), clock.now()),
+                ),
+            ),
 
         setAvatar: async ({ id, body, contentType }) => {
             if (body.length === 0) {
                 throw new EmptyAvatarError();
             }
 
-            const user = await getUser(id);
+            const user = await loadUser(id);
 
             const avatarKey = await avatars.uploadAvatar({
                 userId: user.id,
@@ -39,7 +44,7 @@ export const createUserService = ({
                 contentType,
             });
 
-            return repository.save({ ...user, avatarKey });
+            return toUserDto(await repository.save({ ...user, avatarKey }));
         },
     };
 };

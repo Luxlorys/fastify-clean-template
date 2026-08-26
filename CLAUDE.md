@@ -38,11 +38,14 @@ task, stop and ask; do not add exemptions to `.dependency-cruiser.cjs`.
 1. **Follow the file roles.** Inside `src/modules/<name>/`: `*.entity.ts` /
    `*.errors.ts` (pure domain), `*.ports.ts` (**every** abstract type the
    module owns, in three labelled sections: outbound ports — repository,
-   cache, storage, mail; the `<Name>Service` interface; and `<Name>PublicApi`,
-   the only thing other modules may import), `*.prisma.repository.ts` /
+   cache, storage, mail; the `<Name>Dto` plus input types and the
+   `<Name>Service` interface; and `<Name>PublicApi`, the only thing other
+   modules may import), `*.prisma.repository.ts` /
    `*.cache.repository.ts` / `*.s3.repository.ts` (implementations of those
    ports — **every** one is named `<module>.<technology>.repository.ts`),
-   `*.service.ts` (use cases),
+   `*.service.ts` (use cases), `*.dto.ts` (the mappings across the
+   interface ↔ application boundary: `toXInput` wire → service input,
+   `toXDto` domain → DTO, `toXResponse` DTO → wire),
    `*.schema.ts` + `*.routes.ts` (interface), `index.ts` (wiring). The
    boundary rules match on these names — a file outside the convention
    silently escapes its layer's checks. A new technology (mail, search, …)
@@ -93,6 +96,20 @@ task, stop and ask; do not add exemptions to `.dependency-cruiser.cjs`.
 3. **Services stay framework-free**: no Fastify, no Zod, no HTTP concepts, no
    status codes, no wire envelopes. Inputs/outputs are the service's own
    declared types.
+   3a. **Nothing crosses to or from a route unmapped.** A handler passes
+   `toXInput(request.body)` — never `request.body`, never an object it built
+   inline — and returns `toXResponse(dto)`. A bare scalar
+   (`service.getTask(request.params.id)`) is the only thing that crosses as
+   itself: there is no model to convert.
+   3b. **Services return DTOs, never entities.** Every use case ends in
+   `toXDto()`; the entity is the currency inside the service and stops there,
+   so no route and no sibling module can read a field the module did not
+   publish. `*.dto.ts` owns both hops — `toXDto` and `toXResponse` — and stays
+   plain TypeScript, so it may not import Zod or Fastify (`dto-stays-pure`).
+   The route calls `toXResponse` and its response schema type-checks the
+   result; that is what keeps the wire contract and the mapper in sync, so
+   `toXResponse` never declares the Zod-inferred response type itself. DTOs
+   carry `Date`s — serialization happens at the wire hop only.
 4. **Errors**: throw named module errors from `*.errors.ts` subclassing
    `lib/errors.ts`. Never attach status codes outside
    `plugins/error-handler.ts`; never format error bodies in handlers.
@@ -125,7 +142,8 @@ task, stop and ask; do not add exemptions to `.dependency-cruiser.cjs`.
 - `import type` for type-only imports (`verbatimModuleSyntax` enforces it).
 - Factory functions over classes everywhere except error types.
 - Handlers are thin inline functions in `*.routes.ts` — parse is the schema's
-  job, logic is the service's, mapping is `toXResponse`'s.
+  job, logic is the service's, DTO→wire mapping is `toXResponse`'s. A handler
+  never sees an entity.
 - Conventional Commits (commitlint enforces).
 - No barrel files; a module's `index.ts` is its plugin/composition root, not
   a re-export hub.

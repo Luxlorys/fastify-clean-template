@@ -2,6 +2,7 @@ import {
     completeOnboardingBodySchema,
     onboardingResultResponseSchema,
 } from "./onboarding.schema.js";
+import { toOnboardingResultResponse } from "./onboarding.dto.js";
 import { errorResponseSchema } from "@/lib/schemas.js";
 import type { OnboardingService } from "./onboarding.ports.js";
 import type { FastifyPluginAsyncZod } from "fastify-type-provider-zod";
@@ -27,7 +28,9 @@ export const onboardingRoutes =
                 },
             },
             async (request) => {
-                return service.completeOnboarding(request.body.userId);
+                const result = await service.completeOnboarding(request.body.userId);
+
+                return toOnboardingResultResponse(result);
             },
         );
     };

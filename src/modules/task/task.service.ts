@@ -1,4 +1,5 @@
 import { archiveTask, completeTask, draftTask } from "./task.entity.js";
+import { toTaskDto, toTaskPageDto } from "./task.dto.js";
 import { TaskNotFoundError } from "./task.errors.js";
 import type { Task } from "./task.entity.js";
 import type { TaskService, TaskServiceDeps } from "./task.ports.js";
@@ -16,7 +17,7 @@ export const createTaskService = ({
     cache,
     clock,
 }: TaskServiceDeps): TaskService => {
-    const getTask = async (id: number): Promise<Task> => {
+    const readTask = async (id: number): Promise<Task> => {
         const cached = await cache.read(id);
 
         if (cached !== null) {
@@ -43,14 +44,16 @@ export const createTaskService = ({
 
     return {
         createTask: async (input) =>
-            repository.create(draftTask(input, clock.now())),
+            toTaskDto(await repository.create(draftTask(input, clock.now()))),
 
-        getTask,
+        getTask: async (id) => toTaskDto(await readTask(id)),
 
-        listTasks: (query) => repository.list(query),
+        listTasks: async (query) => toTaskPageDto(await repository.list(query)),
 
-        completeTask: async (id) => persist(completeTask(await loadForUpdate(id))),
+        completeTask: async (id) =>
+            toTaskDto(await persist(completeTask(await loadForUpdate(id)))),
 
-        archiveTask: async (id) => persist(archiveTask(await loadForUpdate(id))),
+        archiveTask: async (id) =>
+            toTaskDto(await persist(archiveTask(await loadForUpdate(id)))),
     };
 };
