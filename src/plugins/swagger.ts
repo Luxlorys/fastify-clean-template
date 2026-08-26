@@ -52,4 +52,12 @@ const swaggerDocs = async (fastify: FastifyInstance) => {
     });
 };
 
-export default fp(swaggerDocs, { name: "swagger-docs" });
+// The `dependencies` entry is what keeps /docs behind the global rate limit:
+// @fastify/rate-limit only covers routes registered after it, and autoload
+// orders plugins alphabetically. Naming security here hoists it ahead of this
+// plugin, so the ordering is a stated requirement rather than a coincidence of
+// filenames — and renaming either file becomes safe.
+export default fp(swaggerDocs, {
+    name: "swagger-docs",
+    dependencies: ["security"],
+});

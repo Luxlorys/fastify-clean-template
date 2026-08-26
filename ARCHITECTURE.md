@@ -102,7 +102,15 @@ Cross-cutting rules, also enforced:
 ### The composition roots
 
 `src/app.ts` composes the application: infrastructure plugins first, then
-modules with their mount prefixes, in an order you read top to bottom. Each
+modules with their mount prefixes, in an order you read top to bottom. The
+plugins arrive by directory — `@fastify/autoload` over `src/plugins/`, so
+dropping a file in registers it — because they are interchangeable: each is
+`fastify-plugin`-wrapped, reads only `app.config`, and decorates the instance.
+Autoload's order is alphabetical unless a plugin names what it needs in its
+`dependencies` metadata, which hoists it (see `plugins/swagger.ts`); an
+ordering requirement lives in the plugin that has it, not in this file. Modules
+stay listed by hand: their order is load-bearing and their prefixes belong in
+the composition root. Each
 module's `index.ts` composes the module: adapter → service → routes. These are
 the only places that know which concrete implementation is used — swapping
 PostgreSQL for something else is a new adapter file plus one changed line in

@@ -49,7 +49,9 @@ declare module "@fastify/jwt" {
 }
 ```
 
-Register it in `app.ts` (before the modules), then protect routes:
+Save it as `src/plugins/auth.ts` — autoload picks it up, no registration
+line to add. If it needs another plugin loaded first, name that plugin in
+`fp(..., { dependencies: [...] })`. Then protect routes:
 
 ```ts
 fastify.post("/", {

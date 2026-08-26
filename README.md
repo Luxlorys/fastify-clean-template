@@ -42,10 +42,10 @@ npm run test:int    # integration tests — needs Docker, nothing else
 ```
 src/
 ├── config.ts                  # env → typed AppConfig (Zod, fails fast)
-├── app.ts                     # composition root: plugins + modules, in order
+├── app.ts                     # composition root: plugins/ autoloaded, modules in order
 ├── server.ts                  # entrypoint: load env, build, listen, graceful close
 ├── lib/                       # shared, framework-free first: errors, clock, pagination
-├── plugins/                   # infrastructure: database, error-handler, security, swagger
+├── plugins/                   # infrastructure: autoloaded by app.ts — a file here is registered
 ├── modules/                   # one folder per domain capability — see below
 │   ├── health/                # smallest possible module: one file
 │   ├── task/                  # the reference module (publishes taskService)
