@@ -11,3 +11,4 @@ changed, supersede the ADR; don't quietly drift.
 | [0003](0003-ports-and-domain.md) | Real repository ports; domain as types + pure functions             |
 | [0004](0004-errors.md)           | Domain errors without status codes; no message catalog; no envelope |
 | [0005](0005-testing.md)          | Two test lanes; in-memory ports instead of mocks                    |
+| [0006](0006-module-contracts.md) | Published module contracts instead of consumer-owned ports          |

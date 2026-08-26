@@ -1,21 +1,28 @@
 import type { S3Client } from "@aws-sdk/client-s3";
 import type { PrismaClient } from "@/generated/prisma/client.js";
 import type { AppConfig } from "@/config.js";
-import type { TaskService } from "@/modules/task/task.service.js";
-import type { UserService } from "@/modules/user/user.service.js";
+import type { TaskPublicApi } from "@/modules/task/task.contract.js";
+import type { UserPublicApi } from "@/modules/user/user.contract.js";
 
 /**
- * The one place decorations are typed. This app-level file may import module
- * types (the boundary rules exempt it) — modules themselves still never
- * import each other: consumers read the decorations off the instance and
- * type them with their own ports.
+ * The one place decorations are typed, and the ceiling on what any code in the
+ * app can reach through them.
+ *
+ * Module services are declared as their module's PUBLIC CONTRACT, never as the
+ * full service type. `decorate()` still accepts the real service (it satisfies
+ * the narrower type structurally), but a caller sees only what the module
+ * published — so `fastify.userService.setAvatar(...)` from an unrelated module
+ * is a compile error, not a boundary violation nobody notices.
+ *
+ * This app-level file may import module types; modules import each other's
+ * *.contract.ts directly and nothing else.
  */
 declare module "fastify" {
     interface FastifyInstance {
         config: AppConfig;
         prisma: PrismaClient;
         s3: S3Client;
-        taskService: TaskService;
-        userService: UserService;
+        taskService: TaskPublicApi;
+        userService: UserPublicApi;
     }
 }

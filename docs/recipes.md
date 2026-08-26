@@ -97,20 +97,28 @@ with `@aws-sdk/s3-request-presigner`.
 
 This one lives in the code, not just in this file — read the slice:
 
+- **Contract**: `src/modules/user/user.contract.ts` — the capability the module
+  offers, as pure types over ids and plain inputs. The only file in that folder
+  another module may import. `src/modules/task/task.contract.ts` is the second
+  example.
 - **Publisher**: `src/modules/user/index.ts` — builds its service, calls
   `fastify.decorate("userService", service)`, and is exported wrapped in
   `fastify-plugin` so the decoration escapes encapsulation and reaches
   siblings (which is also why it mounts its own `/api/users` prefix
-  internally: fp-wrapped plugins don't receive one). `src/modules/task/index.ts`
-  is the second example. Decorations are typed in `src/types/fastify.d.ts`.
-- **Consumer**: `src/modules/onboarding/` — declares the slice it needs as
-  consumer-owned ports (`onboarding.ports.ts`, types only), and its
-  `index.ts` wires `fastify.userService` / `fastify.taskService` into the
-  service. TypeScript checks structurally, at those lines, that the published
-  services satisfy the ports — zero imports between the module folders.
+  internally: fp-wrapped plugins don't receive one). `src/types/fastify.d.ts`
+  types that decoration as **the contract, not the service** — which is what
+  keeps `fastify.userService` from becoming a way into the whole module.
+- **Consumer**: `src/modules/onboarding/` — imports the two contract types
+  directly and wires `fastify.userService` / `fastify.taskService` into its
+  service in `index.ts`. The import is a real edge, so `npm run boundaries`
+  checks it; everything else in those folders stays unreachable.
 - **Order**: `app.ts` registers publishers before consumers.
-- **Tests**: `test/unit/onboarding.service.test.ts` fakes each port in five
+- **Tests**: `test/unit/onboarding.service.test.ts` fakes each contract in five
   lines; `test/int/onboarding.test.ts` proves the wiring over HTTP.
+
+Do **not** re-declare the provider's signature in the consumer's `*.ports.ts`.
+Ports invert outbound infrastructure you implement several ways; contracts
+publish a capability another module owns. See [ADR-0006](adr/0006-module-contracts.md).
 
 If two modules keep growing shared surface, that is the signal they are one
 module — merge them, or extract the shared core to `lib/`.

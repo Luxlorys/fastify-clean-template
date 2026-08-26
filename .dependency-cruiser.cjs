@@ -11,20 +11,35 @@
  *   *.repository.prisma.ts   adapter          — implements the port, owns Prisma
  *   *.storage.s3.ts          adapter          — implements a storage port, owns @aws-sdk
  *   *.repository.ts          port             — types only
- *   *.ports.ts               outbound ports   — types only (storage, other modules' services, …)
+ *   *.ports.ts               outbound ports   — types only (storage, cache, mail — infrastructure)
+ *   *.contract.ts            public API       — types only; the ONLY file other modules may import
  *   *.entity.ts, *.errors.ts domain           — pure TypeScript
+ *
+ * Ports and contracts are different jobs and must not be mixed:
+ *   - a PORT inverts an outbound dependency the module owns several
+ *     implementations of (S3, in-memory, …). The module declares what it needs.
+ *   - a CONTRACT publishes a capability the module offers to siblings. The
+ *     module declares what it gives. One definition, N consumers, one import
+ *     edge this file can police.
  */
 
 /** What domain files (entities, errors) may depend on: each other and the pure lib files. */
 const DOMAIN_ALLOWED =
     "^src/modules/[^/]+/[^/]+\\.(entity|errors)\\.ts$|^src/lib/(errors|clock|pagination)\\.ts$";
 
-/** What a service may depend on: the domain, ports (own + consumer), other services in its module, pure lib. */
+/** What a service may depend on: the domain, its ports, other modules' published contracts, other services in its module, pure lib. */
 const SERVICE_ALLOWED =
-    "^src/modules/[^/]+/[^/]+\\.(entity|errors|repository|service|ports)\\.ts$|^src/lib/(errors|clock|pagination)\\.ts$";
+    "^src/modules/[^/]+/[^/]+\\.(entity|errors|repository|service|ports|contract)\\.ts$|^src/lib/(errors|clock|pagination)\\.ts$";
 
 /** What a port may depend on: the domain and pure lib types. */
 const PORT_ALLOWED = DOMAIN_ALLOWED;
+
+/**
+ * What a published contract may depend on: pure lib types only. Deliberately
+ * narrower than a port — a contract crosses a module border, so it may not
+ * reference the module's own entities. Ids and plain inputs cross, not `User`.
+ */
+const CONTRACT_ALLOWED = "^src/lib/(errors|clock|pagination)\\.ts$";
 
 /** What an adapter may depend on: domain, port, the generated Prisma client, pure lib. */
 const ADAPTER_ALLOWED =
@@ -70,6 +85,16 @@ module.exports = {
                 path: "^src/modules/[^/]+/[^/]+\\.(repository|ports)\\.ts$",
             },
             to: { pathNot: PORT_ALLOWED },
+        },
+        {
+            name: "contract-is-types-only",
+            severity: "error",
+            comment:
+                "A module's published contract is the one file siblings may import, so it must stay a " +
+                "pure type declaration over ids and plain inputs: no frameworks, no Prisma, and no " +
+                "entities — importing an entity here would drag the module's domain across the border.",
+            from: { path: "^src/modules/[^/]+/[^/]+\\.contract\\.ts$" },
+            to: { pathNot: CONTRACT_ALLOWED },
         },
         {
             name: "adapter-stays-below",
@@ -127,10 +152,15 @@ module.exports = {
             name: "modules-are-islands",
             severity: "error",
             comment:
-                "A module may not import another module's files. If module A needs module B's capability, " +
-                "B's plugin decorates the Fastify instance (see docs/recipes.md) or the shared piece moves to lib.",
+                "A module may import exactly one thing from another module: its *.contract.ts. Everything " +
+                "else in that folder is private. The implementation still arrives as a decoration wired in " +
+                "index.ts (see docs/recipes.md); the contract is only how its type crosses the border.",
             from: { path: "^src/modules/([^/]+)/" },
-            to: { path: "^src/modules/", pathNot: "^src/modules/$1/" },
+            to: {
+                path: "^src/modules/",
+                pathNot:
+                    "^src/modules/$1/|^src/modules/[^/]+/[^/]+\\.contract\\.ts$",
+            },
         },
         {
             name: "lib-is-standalone",
