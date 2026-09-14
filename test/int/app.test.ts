@@ -27,6 +27,20 @@ describe("application plumbing", () => {
         expect(response.headers).toHaveProperty("x-ratelimit-limit");
     });
 
+    it("lets browser clients preflight every write method the routes use", async () => {
+        const response = await app.inject({
+            method: "OPTIONS",
+            url: "/api/users/1/avatar",
+            headers: {
+                origin: "https://client.example",
+                "access-control-request-method": "PUT",
+            },
+        });
+
+        expect(response.statusCode).toBe(204);
+        expect(response.headers["access-control-allow-methods"]).toContain("PUT");
+    });
+
     it("returns the uniform error body for unknown routes", async () => {
         const response = await app.inject({ method: "GET", url: "/nope" });
 
