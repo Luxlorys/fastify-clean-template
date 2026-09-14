@@ -15,7 +15,9 @@ export const MINIO_CREDENTIALS = {
 export const TEST_AVATARS_BUCKET = "avatars";
 
 export const startMinio = async () => {
-    const container = await new GenericContainer("minio/minio:latest")
+    const container = await new GenericContainer(
+        "quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z",
+    )
         .withCommand(["server", "/data"])
         .withEnvironment({
             MINIO_ROOT_USER: MINIO_CREDENTIALS.accessKeyId,
