@@ -1,8 +1,8 @@
 import { archiveTask, completeTask, draftTask } from "./task.entity.js";
-import { toTaskDto, toTaskPageDto } from "./task.dto.js";
+import { toTaskDto, toTaskPageDto } from "./dto/task.dto.js";
 import { TaskNotFoundError } from "./task.errors.js";
 import type { Task } from "./task.entity.js";
-import type { TaskService, TaskServiceDeps } from "./task.ports.js";
+import type { TaskService, TaskServiceDeps } from "./ports/service.port.js";
 
 const orNotFound = (task: Task | null): Task => {
     if (task === null) {

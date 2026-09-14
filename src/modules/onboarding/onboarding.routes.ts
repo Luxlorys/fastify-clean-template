@@ -2,9 +2,9 @@ import {
     completeOnboardingBodySchema,
     onboardingResultResponseSchema,
 } from "./onboarding.schema.js";
-import { toOnboardingResultResponse } from "./onboarding.dto.js";
+import { toOnboardingResultResponse } from "./dto/onboarding-result.dto.js";
 import { errorResponseSchema } from "@/lib/schemas.js";
-import type { OnboardingService } from "./onboarding.ports.js";
+import type { OnboardingService } from "./ports/service.port.js";
 import type { FastifyPluginAsyncZod } from "fastify-type-provider-zod";
 
 const ONBOARDING_TAG = "onboarding";

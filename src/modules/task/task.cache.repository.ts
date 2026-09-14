@@ -1,6 +1,6 @@
 import { TASK_STATUSES } from "./task.entity.js";
 import type { Task } from "./task.entity.js";
-import type { TaskCache } from "./task.ports.js";
+import type { TaskCache } from "./ports/cache.port.js";
 import type { Redis } from "ioredis";
 
 const KEY_VERSION = "v1";

@@ -1,6 +1,7 @@
 import { TaskNotFoundError } from "./task.errors.js";
+import { pageOf } from "@/lib/pagination.js";
 import type { Task } from "./task.entity.js";
-import type { TaskRepository } from "./task.ports.js";
+import type { TaskRepository } from "./ports/repository.port.js";
 import type { PrismaClient, Task as TaskRow } from "@/generated/prisma/client.js";
 
 const toTask = (row: TaskRow): Task => ({
@@ -63,11 +64,7 @@ export const createPrismaTaskRepository = (
             take: limit + 1,
         });
 
-        const items = rows.slice(0, limit).map(toTask);
-        const last = items.at(-1);
-        const nextCursor = rows.length > limit && last ? last.id : null;
-
-        return { items, nextCursor };
+        return pageOf(rows, limit, toTask);
     },
 });
 

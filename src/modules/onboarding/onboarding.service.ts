@@ -1,7 +1,7 @@
 import type {
     OnboardingService,
     OnboardingServiceDeps,
-} from "./onboarding.ports.js";
+} from "./ports/service.port.js";
 
 export const createOnboardingService = ({
     users,

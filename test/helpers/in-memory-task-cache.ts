@@ -1,5 +1,5 @@
 import type { Task } from "@/modules/task/task.entity.js";
-import type { TaskCache } from "@/modules/task/task.ports.js";
+import type { TaskCache } from "@/modules/task/ports/cache.port.js";
 
 /**
  * A genuine implementation of the TaskCache port, not a mock. It honors the

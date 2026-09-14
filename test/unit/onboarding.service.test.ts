@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { createOnboardingService } from "@/modules/onboarding/onboarding.service.js";
 import { UserAlreadyOnboardedError } from "@/modules/user/user.errors.js";
-import type { TaskPublicApi } from "@/modules/task/task.ports.js";
-import type { UserPublicApi } from "@/modules/user/user.ports.js";
+import type { TaskPublicApi } from "@/modules/task/ports/public-api.port.js";
+import type { UserPublicApi } from "@/modules/user/ports/public-api.port.js";
 
 /**
  * The narrow-contract payoff in test form: the "user module" and "task module"

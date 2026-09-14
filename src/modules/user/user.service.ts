@@ -1,8 +1,8 @@
 import { markOnboarded } from "./user.entity.js";
-import { toUserDto } from "./user.dto.js";
+import { toUserDto } from "./dto/user.dto.js";
 import { EmptyAvatarError, UserNotFoundError } from "./user.errors.js";
 import type { User } from "./user.entity.js";
-import type { UserService, UserServiceDeps } from "./user.ports.js";
+import type { UserService, UserServiceDeps } from "./ports/service.port.js";
 
 export const createUserService = ({
     repository,

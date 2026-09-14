@@ -1,4 +1,4 @@
-import type { AvatarRepository } from "@/modules/user/user.ports.js";
+import type { AvatarRepository } from "@/modules/user/ports/avatar.port.js";
 
 /**
  * A genuine implementation of the AvatarRepository port, not a mock: it stores

@@ -4,7 +4,7 @@ import { TaskNotFoundError } from "@/modules/task/task.errors.js";
 import { buildTestApp } from "./helpers/build-test-app.js";
 import { createTasks } from "./factories/task.factory.js";
 import type { FastifyInstance } from "fastify";
-import type { TaskRepository } from "@/modules/task/task.ports.js";
+import type { TaskRepository } from "@/modules/task/ports/repository.port.js";
 
 /**
  * Implementation tests: the Prisma implementation of the port against a real

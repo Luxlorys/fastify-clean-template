@@ -1,6 +1,6 @@
 import { EmailTakenError, UserNotFoundError } from "./user.errors.js";
 import type { User } from "./user.entity.js";
-import type { UserRepository } from "./user.ports.js";
+import type { UserRepository } from "./ports/repository.port.js";
 import type { PrismaClient, User as UserRow } from "@/generated/prisma/client.js";
 
 const toUser = (row: UserRow): User => ({

@@ -5,9 +5,13 @@ import {
     userParamsSchema,
     userResponseSchema,
 } from "./user.schema.js";
-import { toCreateUserInput, toSetAvatarInput, toUserResponse } from "./user.dto.js";
+import {
+    toCreateUserInput,
+    toSetAvatarInput,
+    toUserResponse,
+} from "./dto/user.dto.js";
 import { errorResponseSchema } from "@/lib/schemas.js";
-import type { UserService } from "./user.ports.js";
+import type { UserService } from "./ports/service.port.js";
 import type { FastifyPluginAsyncZod } from "fastify-type-provider-zod";
 
 const USER_TAG = "users";

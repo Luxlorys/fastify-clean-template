@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { PutObjectCommand } from "@aws-sdk/client-s3";
 import type { S3Client } from "@aws-sdk/client-s3";
-import type { AvatarRepository } from "./user.ports.js";
+import type { AvatarRepository } from "./ports/avatar.port.js";
 
 export const createS3AvatarRepository = (
     s3: S3Client,
