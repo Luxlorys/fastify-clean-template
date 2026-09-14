@@ -12,7 +12,8 @@ import {
     createInMemoryTaskCache,
 } from "../helpers/in-memory-task-cache.js";
 import { createInMemoryTaskRepository } from "../helpers/in-memory-task-repository.js";
-import type { TaskCache, TaskRepository } from "@/modules/task/task.ports.js";
+import type { TaskCache } from "@/modules/task/ports/cache.port.js";
+import type { TaskRepository } from "@/modules/task/ports/repository.port.js";
 
 /**
  * Use-case tests: real service, real entity rules, in-memory port

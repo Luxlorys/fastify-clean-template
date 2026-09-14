@@ -10,9 +10,9 @@ import {
     toListTasksInput,
     toTaskPageResponse,
     toTaskResponse,
-} from "./task.dto.js";
+} from "./dto/task.dto.js";
 import { errorResponseSchema } from "@/lib/schemas.js";
-import type { TaskService } from "./task.ports.js";
+import type { TaskService } from "./ports/service.port.js";
 import type { FastifyPluginAsyncZod } from "fastify-type-provider-zod";
 
 const TASK_TAG = "tasks";

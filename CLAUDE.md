@@ -6,8 +6,8 @@ container, boundaries enforced by dependency-cruiser.
 
 Read [ARCHITECTURE.md](./ARCHITECTURE.md) for the design, [docs/adr/](./docs/adr/)
 for why it is this way, [docs/recipes.md](./docs/recipes.md) before adding
-auth, storage SDKs, transactions or JSON columns — the pattern you need is
-probably specified there.
+auth, storage SDKs, an external service (mail, payments, an LLM), transactions
+or JSON columns — the pattern you need is probably specified there.
 
 ## Working with the user
 
@@ -36,43 +36,72 @@ so work with the rules rather than around them. If a rule seems to block the
 task, stop and ask; do not add exemptions to `.dependency-cruiser.cjs`.
 
 1. **Follow the file roles.** Inside `src/modules/<name>/`: `*.entity.ts` /
-   `*.errors.ts` (pure domain), `*.ports.ts` (**every** abstract type the
-   module owns, in three labelled sections: outbound ports — repository,
-   cache, storage, mail; the `<Name>Dto` plus input types and the
-   `<Name>Service` interface; and `<Name>PublicApi`, the only thing other
-   modules may import), `*.prisma.repository.ts` /
-   `*.cache.repository.ts` / `*.s3.repository.ts` (implementations of those
-   ports — **every** one is named `<module>.<technology>.repository.ts`),
-   `*.service.ts` (use cases), `*.dto.ts` (the mappings across the
-   interface ↔ application boundary: `toXInput` wire → service input,
-   `toXDto` domain → DTO, `toXResponse` DTO → wire),
+   `*.errors.ts` (pure domain), `dto/*.dto.ts` (**every** transfer model,
+   **one file per model** — see 1c), `ports/*.port.ts` (**every** dependency the
+   module inverts or publishes, **one file per role** — `repository.port.ts`,
+   `cache.port.ts` and one file per further outbound dependency named for what
+   it inverts (`avatar`, `mail`, `generator`, …); `service.port.ts`
+   for the `<Name>Service` interface and its `Deps`; and `public-api.port.ts`
+   holding `<Name>PublicApi`, the only file other modules may import),
+   `*.prisma.repository.ts` / `*.cache.repository.ts` / `*.s3.repository.ts` /
+   `*.<tech>.service.ts` (implementations of those ports — see 1a),
+   `<module>.service.ts` (use cases),
    `*.schema.ts` + `*.routes.ts` (interface), `index.ts` (wiring). The
    boundary rules match on these names — a file outside the convention
-   silently escapes its layer's checks. A new technology (mail, search, …)
-   means a port type in `*.ports.ts`, a `<module>.<tech>.repository.ts` file,
-   and its SDK rule in `.dependency-cruiser.cjs`, mirroring the Redis trio.
-   1a. **Cross-module use goes through the provider's published API.** A module
-   offering a capability declares `<Name>PublicApi` in the last section of its
-   `*.ports.ts` (pure types over ids and plain inputs, no entities) and
-   publishes its service as a decoration (see `modules/user/index.ts` —
-   fp-wrapped, mounts its own prefix). The decoration is typed as **the
-   published API, not the service**, in `src/types/fastify.d.ts` — that is what
-   stops unrelated modules reaching into it. A consumer imports that type
-   directly from the provider's `*.ports.ts` and wires `fastify.<x>Service` in
-   its `index.ts` (see `modules/onboarding`). Take **only** the `*PublicApi`
-   type across a border: `modules-are-islands` can check the file, not the type
-   inside it, so this half is on you, as is keeping entities out of the
-   published section. Never re-declare a provider's signature as a port of your
-   own: ports are for infrastructure you implement several ways, the published
-   API is for a capability another module owns. Entities never cross module
-   borders — ids and plain inputs do.
+   silently escapes its layer's checks.
+   1a. **Port implementations come in two families** (ADR-0010). One that adapts
+   something the module **stores into and reads back** is
+   `<module>.<technology>.repository.ts` (Prisma, Redis, filesystem, S3); one
+   that adapts an **external capability the module calls** and gets an answer
+   from is `<module>.<technology>.service.ts` (`mail.sendgrid.service.ts` — none
+   ships with the template; the shape is `docs/recipes.md` §2c).
+   `<module>.service.ts` — one dot — is the application service and may never
+   import an SDK; a two-dot `<module>.<tech>.service.ts` is an adapter and may.
+   The rules tell them apart by that dot alone, so **never put a dot in an
+   application service's stem**. A new technology (mail, search, …) means a
+   `*.port.ts` file named for the capability, an implementation in whichever
+   family fits, and **one row in the `ADAPTERS` table** in
+   `.dependency-cruiser.cjs` — technology, family, the SDK it owns, the plugin
+   holding that client — which generates both boundary rules. Leaving the row
+   out is not a way to skip the rules: an adapter whose technology is not in the
+   table fails `adapter-technology-is-registered`.
+   1b. **Cross-module use goes through the provider's published API.** A module
+   offering a capability declares `<Name>PublicApi` alone in its
+   `ports/public-api.port.ts` (pure types over ids and plain inputs, no
+   entities) and publishes its service as a decoration (see
+   `modules/user/index.ts` — fp-wrapped, mounts its own prefix). The
+   decoration is typed as **the published API, not the service**, in
+   `src/types/fastify.d.ts` — that is what stops unrelated modules reaching into
+   it. A consumer imports that type directly from the provider's
+   `ports/public-api.port.ts` and wires `fastify.<x>Service` in its `index.ts`
+   (see `modules/onboarding`).
+   `modules-are-islands` admits **only** that file across a border, so taking a
+   sibling's repository port or transfer model fails the build; what is still on you is
+   keeping entities out of the published file. Never re-declare a provider's
+   signature as a port of your own: ports are for infrastructure you implement
+   several ways, the published API is for a capability another module owns.
+   Entities never cross module borders — ids and plain inputs do.
+   1c. **One transfer model per file in `dto/`** (ADR-0011), named for the model,
+   not the module: `dto/task.dto.ts`, `dto/onboarding-result.dto.ts`. Each file
+   holds the whole edge of that one model — the `<Name>Dto` type, the input type
+   the use case accepts, and all three mappings (`toXInput` wire → service
+   input, `toXDto` domain → DTO, `toXResponse` DTO → wire). Helpers used by one
+   model stay unexported in its file. **A DTO file imports the entity it maps
+   from, its sibling DTO files and pure lib — never `ports/`**: the dependency
+   runs the other way, since `service.port.ts` and `public-api.port.ts` name
+   what the service takes and returns from `dto/`. Never declare a service input
+   or a `<Name>Dto` in `ports/`; that is what `ports/dto.port.ts` was, and it
+   inverted nothing. The layer order inside a module is
+   `entity/errors → dto/ → ports/ → service → routes`.
 2. **SDKs only in port implementations.** Prisma lives in
    `*.prisma.repository.ts` (plus `plugins/database.ts` and test factories);
    `ioredis` lives in `*.cache.repository.ts` (plus `plugins/redis.ts`);
-   `@aws-sdk/*` lives in `*.s3.repository.ts` (plus `plugins/s3.ts`). Services
-   never see SDK types; ports speak the module's vocabulary — purpose in the
-   port (`uploadAvatar`, `read`/`write`/`forget`), technology in the
-   implementation (buckets, keys, commands, TTLs).
+   `@aws-sdk/*` lives in `*.s3.repository.ts` (plus `plugins/s3.ts`); an
+   external capability's SDK lives in its `*.<tech>.service.ts` (plus the
+   plugin holding its client). Application services never see SDK types; ports
+   speak the module's vocabulary — purpose in the port (`uploadAvatar`,
+   `read`/`write`/`forget`, `send`, `generate`), technology in the
+   implementation (buckets, keys, commands, TTLs, models, prompts).
    2a. **Implementations are siblings, never nested.** The cache repository
    implements the cache port and talks to Redis only; it never wraps or calls
    the Prisma repository, and no `*.repository.cached.ts` middle file exists.
@@ -93,10 +122,32 @@ task, stop and ask; do not add exemptions to `.dependency-cruiser.cjs`.
    and then writes the whole stale entity back. A stale query is the trade;
    a stale write is data loss. Copy this split into every module that
    caches.
+   2c. **No policy in an adapter** (ADR-0009, ADR-0012). A
+   `*.<tech>.service.ts` is one call to the vendor plus the translation of its
+   errors and stop reasons into named module errors. Everything a second
+   vendor would need identically — preparing the input, planning, validating
+   the answer, deciding whether to retry or ask for a correction — is the
+   application service's, where in-memory ports can test it. An adapter
+   cannot be split into helper files (an implementation may not import a
+   sibling or a helper, and a helper may not import the SDK), so the only way
+   to shrink one is to move that work up. When the vendor can be asked to fix
+   its own answer (an LLM), the port returns an attempt carrying
+   `correct(reasons)` and the service runs the loop against a budget from
+   config; the entity owns the limits and returns **every** violation, so one
+   correction turn can fix them all. Translate vendor failures most-specific
+   first: connection, 429 and 5xx become a `ServiceUnavailableError` subclass,
+   anything else a named rejection — both carrying the vendor's message. A pure
+   `lib/` transformation the use case needs is added to `SERVICE_ALLOWED`,
+   never to the adapter's `alsoDependsOn`. The shape is `docs/recipes.md` §2c.
 3. **Services stay framework-free**: no Fastify, no Zod, no HTTP concepts, no
    status codes, no wire envelopes. Inputs/outputs are the service's own
    declared types.
-   3a. **Nothing crosses to or from a route unmapped.** A handler passes
+   3a. **The route boundary is the only one that needs a transfer model.**
+   A port is written in the module's own domain vocabulary, so the
+   service ↔ repository/cache/generator hop passes **entities** unmapped, and an
+   adapter may not import `dto/` at all. Rows, JSON blobs and SDK types are the
+   adapter's private business, mapped inside the file that read them.
+   Nothing crosses to or from a _route_ unmapped: a handler passes
    `toXInput(request.body)` — never `request.body`, never an object it built
    inline — and returns `toXResponse(dto)`. A bare scalar
    (`service.getTask(request.params.id)`) is the only thing that crosses as
@@ -104,8 +155,9 @@ task, stop and ask; do not add exemptions to `.dependency-cruiser.cjs`.
    3b. **Services return DTOs, never entities.** Every use case ends in
    `toXDto()`; the entity is the currency inside the service and stops there,
    so no route and no sibling module can read a field the module did not
-   publish. `*.dto.ts` owns both hops — `toXDto` and `toXResponse` — and stays
-   plain TypeScript, so it may not import Zod or Fastify (`dto-stays-pure`).
+   publish. `dto/<model>.dto.ts` owns both hops — `toXDto` and `toXResponse` —
+   and stays plain TypeScript, so it may not import Zod or Fastify
+   (`dto-stays-pure`).
    The route calls `toXResponse` and its response schema type-checks the
    result; that is what keeps the wire contract and the mapper in sync, so
    `toXResponse` never declares the Zod-inferred response type itself. DTOs

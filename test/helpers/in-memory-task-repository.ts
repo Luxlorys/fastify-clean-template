@@ -1,7 +1,8 @@
 import { systemClock } from "@/lib/clock.js";
+import { pageOf } from "@/lib/pagination.js";
 import type { Clock } from "@/lib/clock.js";
 import type { Task } from "@/modules/task/task.entity.js";
-import type { TaskRepository } from "@/modules/task/task.ports.js";
+import type { TaskRepository } from "@/modules/task/ports/repository.port.js";
 
 /**
  * A genuine implementation of the TaskRepository port, not a mock: it honors
@@ -46,11 +47,7 @@ export const createInMemoryTaskRepository = (
                 .filter((task) => cursor === undefined || task.id < cursor)
                 .sort((a, b) => b.id - a.id);
 
-            const items = matching.slice(0, limit);
-            const last = items.at(-1);
-            const nextCursor = matching.length > limit && last ? last.id : null;
-
-            return { items, nextCursor };
+            return pageOf(matching, limit, (task) => task);
         },
     };
 };

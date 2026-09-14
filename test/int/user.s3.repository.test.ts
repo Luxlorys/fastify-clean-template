@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { createS3AvatarRepository } from "@/modules/user/user.s3.repository.js";
 import { buildTestApp } from "./helpers/build-test-app.js";
 import type { FastifyInstance } from "fastify";
-import type { AvatarRepository } from "@/modules/user/user.ports.js";
+import type { AvatarRepository } from "@/modules/user/ports/avatar.port.js";
 
 /**
  * Implementation contract test: the S3 implementation of the AvatarRepository port

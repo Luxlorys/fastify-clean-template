@@ -1,5 +1,24 @@
-import type { User } from "./user.entity.js";
-import type { CreateUserInput, SetAvatarInput, UserDto } from "./user.ports.js";
+import type { User } from "../user.entity.js";
+
+export type CreateUserInput = {
+    email: string;
+    name: string;
+};
+
+export type SetAvatarInput = {
+    id: number;
+    body: Buffer;
+    contentType: string;
+};
+
+export type UserDto = {
+    id: number;
+    email: string;
+    name: string;
+    avatarKey: string | null;
+    onboardedAt: Date | null;
+    createdAt: Date;
+};
 
 export const toCreateUserInput = (body: {
     email: string;

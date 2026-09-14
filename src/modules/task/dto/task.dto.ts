@@ -1,6 +1,24 @@
-import type { Task, TaskStatus } from "./task.entity.js";
-import type { CreateTaskInput, ListTasksInput, TaskDto } from "./task.ports.js";
+import type { Task, TaskStatus } from "../task.entity.js";
 import type { Page } from "@/lib/pagination.js";
+
+export type CreateTaskInput = {
+    title: string;
+    dueDate?: Date | null;
+};
+
+export type ListTasksInput = {
+    limit: number;
+    cursor?: number;
+    status?: TaskStatus;
+};
+
+export type TaskDto = {
+    id: number;
+    title: string;
+    status: TaskStatus;
+    dueDate: Date | null;
+    createdAt: Date;
+};
 
 export const toCreateTaskInput = (body: {
     title: string;

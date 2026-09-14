@@ -62,9 +62,9 @@ fastify.post("/", {
 
 The 401 flows through the same error-handler as everything else. Sign tokens in
 an `auth` module's service. To keep that service unit-testable, `fastify.jwt` is
-an outbound dependency like any other: declare `TokenSigner` in the ports
-section of `auth.ports.ts`, implement it in `auth.jwt.repository.ts`, and wire
-it in `auth/index.ts` — the same three pieces as S3 and Redis below.
+an outbound dependency like any other: declare `TokenSigner` in
+`auth/ports/token-signer.port.ts`, implement it in `auth.jwt.repository.ts`, and
+wire it in `auth/index.ts` — the same three pieces as S3 and Redis below.
 
 ---
 
@@ -76,16 +76,32 @@ SDK, the plugin owns the client lifecycle.**
 
 - **Plugin**: `src/plugins/s3.ts` — client from config, `decorate("s3")`,
   destroy on close. Typed in `src/types/fastify.d.ts`.
-- **Port**: `modules/user/user.ports.ts` — `AvatarRepository.uploadAvatar(...)`;
-  purpose-named, zero SDK vocabulary.
+- **Port**: `modules/user/ports/avatar.port.ts` — `AvatarRepository.uploadAvatar(...)`;
+  purpose-named, zero SDK vocabulary. One `*.port.ts` file per role.
 - **Implementation**: `modules/user/user.s3.repository.ts` — bucket, key
   layout, `PutObjectCommand`; the only module file importing `@aws-sdk/*`.
-  Every port implementation is named `<module>.<technology>.repository.ts`.
+  A port implementation is named `<module>.<technology>.repository.ts` when it
+  adapts a **store** (S3, Prisma, Redis, the filesystem) and
+  `<module>.<technology>.service.ts` when it adapts an **external capability the
+  module calls** and gets an answer from — recipe 2c. See
+  [ADR-0010](adr/0010-ports-folder-and-service-adapters.md).
 - **Wiring**: `modules/user/index.ts` —
   `createS3AvatarRepository(fastify.s3, config.S3_AVATARS_BUCKET)`.
-- **Boundaries**: `s3-implementation-stays-below` +
-  `aws-sdk-only-in-s3-implementations` in `.dependency-cruiser.cjs` — the
-  storage twins of the Prisma rules.
+- **Boundaries**: one row in the `ADAPTERS` table in
+  `.dependency-cruiser.cjs`, which generates `s3-implementation-stays-below`
+  and `s3-sdk-is-contained` — the storage twins of the Prisma rules:
+
+    ```js
+    {
+        technology: "s3",
+        family: "repository",
+        sdk: "^node_modules/@aws-sdk",
+        sdkAlsoIn: ["^src/plugins/s3\\.ts$"],
+        alsoDependsOn: [],
+        note: "...",
+    }
+    ```
+
 - **Tests**: `test/helpers/in-memory-avatar-repository.ts` (unit lane),
   `test/int/user.s3.repository.test.ts` + `test/int/setup/minio.ts`
   (implementation contract against MinIO — a real S3 API, no AWS account
@@ -93,7 +109,7 @@ SDK, the plugin owns the client lifecycle.**
 
 To add another technology (a mail sender, a payment client), copy that
 six-piece shape with a new file (`user.ses.repository.ts`) and its
-dependency-cruiser pair. The port type, the factory and the dependency key
+`ADAPTERS` row. The port type, the factory and the dependency key
 follow the filename: `MailRepository`, `createSesMailRepository`, `mail` — a
 file renamed without its vocabulary is a half-done rename. Presigned URLs, when needed, are one more port method
 (`signedReadUrl`) implemented in `user.s3.repository.ts` with
@@ -101,7 +117,8 @@ file renamed without its vocabulary is a half-done rename. Presigned URLs, when 
 
 This recipe covers an integration **one module consumes**. When the same
 SDK mechanics repeat across modules with no policy attached, share a pure
-helper in `lib/` that only `*.<technology>.repository.ts` files may import.
+helper in `lib/` that only that technology's adapters may import — list it in
+the row's `alsoDependsOn` and `sdkAlsoIn`.
 The moment an integration owns behavior or state — retry, dedup, a queue,
 suppression, webhooks — it is a capability, and it becomes a module of its
 own publishing a `*PublicApi` (recipe 3). The decision rule is
@@ -118,7 +135,7 @@ repository, never a wrapper around it**:
 | Piece              | File                                    | Owns                                                                                                                                                                                                                    |
 | ------------------ | --------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Plugin**         | `src/plugins/redis.ts`                  | The client lifecycle only. `lazyConnect` so boot does not depend on Redis; `maxRetriesPerRequest: 1` so an outage costs one failure, not twenty retries; an `error` listener because an unhandled one is fatal in Node. |
-| **Port**           | `modules/task/task.ports.ts`            | `TaskCache.read/write/forget` — the module's words. No `get`, `set` or `expire`.                                                                                                                                        |
+| **Port**           | `modules/task/ports/cache.port.ts`      | `TaskCache.read/write/forget` — the module's words. No `get`, `set` or `expire`.                                                                                                                                        |
 | **Implementation** | `modules/task/task.cache.repository.ts` | Key layout (`task:v1:<id>`), the TTL, the JSON codec with Date revival, and the failure policy. The only file importing `ioredis`.                                                                                      |
 | **Policy**         | `modules/task/task.service.ts`          | Which use case may read a snapshot and which must not, and where invalidation happens. Holds both ports; imports no SDK.                                                                                                |
 
@@ -189,16 +206,100 @@ connection is blocked, so it needs `redis.duplicate()`, not the shared client.
 
 ---
 
+## 2c. An external capability: mail, payments, an LLM (`*.<tech>.service.ts`)
+
+No vendor ships with the template, but the shape is fixed. A `.repository.ts`
+adapts something the module stores into and reads back; a `.service.ts` adapts a
+capability the module **calls and gets an answer from**, and it is **transport
+only** ([ADR-0012](adr/0012-no-policy-in-an-adapter.md)).
+
+| Piece          | File                                        | Owns                                                                                                               |
+| -------------- | ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| **Plugin**     | `src/plugins/<vendor>.ts`                   | The SDK client's lifecycle only. Typed in `src/types/fastify.d.ts`.                                                |
+| **Port**       | `modules/<name>/ports/<capability>.port.ts` | One attempt in the module's words: `MailTransport.send(message)`, `SummaryGenerator.generate(input)`.              |
+| **Adapter**    | `modules/<name>/<name>.<vendor>.service.ts` | Request format, prompts and model settings, stop reasons, the error chain. The only module file importing the SDK. |
+| **Policy**     | `modules/<name>/<name>.service.ts`          | Preparing the input, validating the answer, the retry or correction budget, what gets recorded.                    |
+| **Rules**      | `modules/<name>/<name>.entity.ts`           | The limits the answer is checked against, as constants, and a validator that returns **every** violation.          |
+| **Boundaries** | one `ADAPTERS` row, `family: "service"`     | Generates `<vendor>-implementation-stays-below` and `<vendor>-sdk-is-contained`.                                   |
+
+A vendor that can be asked to fix its own answer gets a port that returns an
+attempt rather than an answer:
+
+```ts
+export type GenerationAttempt = {
+    candidate: SummaryCandidate;
+    usage: GenerationUsage;
+    correct: (reasons: string[]) => Promise<GenerationAttempt>;
+};
+
+export type SummaryGenerator = {
+    generate: (input: GenerateSummaryInput) => Promise<GenerationAttempt>;
+};
+```
+
+The service runs the loop against a budget from config, and the vendor's
+conversation stays inside the adapter's `correct` closure:
+
+```ts
+let attempt = await generator.generate(input);
+let reasons = validateSummary(attempt.candidate);
+
+for (let turn = 0; reasons.length > 0 && turn < maxCorrections; turn++) {
+    attempt = await attempt.correct(reasons);
+    reasons = validateSummary(attempt.candidate);
+}
+
+if (reasons.length > 0) {
+    throw new SummaryInvalidError(reasons);
+}
+```
+
+A vendor that cannot correct itself — mail, payments — gets the plain form:
+`send` is one attempt, and the retry budget, backoff and dedup live in the
+service in exactly the same place.
+
+Rules that carry it:
+
+- **Translate errors most-specific first, and keep the vendor's message.**
+  Connection failures, 429 and 5xx become a module error subclassing
+  `ServiceUnavailableError` (503); every other vendor error — a 400 from a bad
+  parameter, a 401 — becomes a named rejection, so a misconfiguration is
+  recorded as itself and not as an outage. Catch the SDK's base error class, not
+  only its HTTP error: a client-side parse failure inside the SDK otherwise
+  escapes past the stop-reason check and the correction turn.
+- **Check the stop reason before parsing.** A truncated answer is a stop
+  reason, not a JSON error.
+- **Limits live once, in the entity.** A structured-output schema carrying
+  `min`/`max` that the vendor does not enforce is validation in disguise; keep
+  the adapter's schema shape-only and interpolate the entity's constants into
+  the prompt.
+- **Never split an adapter into helper files.** An implementation may not
+  import a sibling or a helper, and a helper may not import the SDK. Shrink an
+  adapter by moving non-vendor work up into the service.
+- **A pure transformation the use case needs** (HTML → text, templating) is a
+  `lib/` file added to `SERVICE_ALLOWED` in `.dependency-cruiser.cjs` — never to
+  the adapter's `alsoDependsOn`. An adapter row exempting a non-vendor helper is
+  the sign the adapter is doing the use case's work.
+- **Tests.** There is no local vendor and no mocks, so the adapter itself runs
+  only in production — which is why nothing but transport may live in it. The
+  unit lane covers the pipeline with one shared stub in `test/helpers/` (a
+  sequenced generator that returns a canned candidate per turn and records the
+  reasons each `correct` received). For route tests, give `buildApp` a second
+  `overrides` argument that the module's `index.ts` accepts in place of the
+  real adapter, so the integration lane runs the real database with the stub.
+
+---
+
 ## 3. A capability one module offers another
 
 This one lives in the code, not just in this file — read the slice:
 
-- **Published API**: `UserPublicApi`, in the last section of
-  `src/modules/user/user.ports.ts` — the capability the module offers, as pure
-  types over ids and plain inputs. That file is the only one in the folder
-  another module may import, and this type is the only thing it should take
-  from it. `TaskPublicApi` in `src/modules/task/task.ports.ts` is the second
-  example.
+- **Published API**: `UserPublicApi`, alone in
+  `src/modules/user/ports/public-api.port.ts` — the capability the module offers,
+  as pure types over ids and plain inputs. That file is the only one in the folder
+  another module may import, and because it holds nothing else, that is now a rule
+  the tool enforces rather than one you have to remember. `TaskPublicApi` in
+  `src/modules/task/ports/public-api.port.ts` is the second example.
 - **Publisher**: `src/modules/user/index.ts` — builds its service, calls
   `fastify.decorate("userService", service)`, and is exported wrapped in
   `fastify-plugin` so the decoration escapes encapsulation and reaches
@@ -207,7 +308,7 @@ This one lives in the code, not just in this file — read the slice:
   types that decoration as **the published API, not the service** — which is
   what keeps `fastify.userService` from becoming a way into the whole module.
 - **Consumer**: `src/modules/onboarding/` — names both published types in its
-  own `onboarding.ports.ts` and wires `fastify.userService` /
+  own `ports/service.port.ts` and wires `fastify.userService` /
   `fastify.taskService` into its service in `index.ts`. The import is a real
   edge, so `npm run boundaries` checks it; the rest of those folders stays
   unreachable.
@@ -215,15 +316,17 @@ This one lives in the code, not just in this file — read the slice:
 - **Tests**: `test/unit/onboarding.service.test.ts` fakes each published API in
   five lines; `test/int/onboarding.test.ts` proves the wiring over HTTP.
 
-Do **not** re-declare the provider's signature as a port of your own. The ports
-section of a `*.ports.ts` inverts outbound infrastructure _you_ implement
-several ways; the public API section publishes a capability _this_ module owns.
+Do **not** re-declare the provider's signature as a port of your own. An
+outbound `*.port.ts` inverts infrastructure _you_ implement several ways;
+`public-api.port.ts` publishes a capability _this_ module owns.
 See [ADR-0006](adr/0006-module-contracts.md).
 
-Note the limit of the enforcement: `modules-are-islands` checks that only
-`*.ports.ts` crosses a module border, but since ports and published API share
-one file, nothing stops a sibling importing `UserRepository` too. That one is
-on review, not on the tool.
+The enforcement is complete here: `modules-are-islands` admits only
+`ports/public-api.port.ts` across a module border, so a sibling reaching for
+`UserRepository` fails `npm run boundaries`
+([ADR-0010](adr/0010-ports-folder-and-service-adapters.md)). What is still on
+review is keeping entities _out_ of that file — the rule sees the path, not the
+shape of the types.
 
 If two modules keep growing shared surface, that is the signal they are one
 module — merge them, or extract the shared core to `lib/`.
@@ -236,8 +339,8 @@ Each port method is atomic today. When one use case must commit several writes
 together, give the _port_ a transactional method rather than leaking an ORM
 transaction into the service:
 
-In the ports section of `task.ports.ts`, the port grows a use-case-shaped
-atomic operation:
+In `task/ports/repository.port.ts`, the port grows a use-case-shaped atomic
+operation:
 
 ```ts
 export type TaskRepository = {

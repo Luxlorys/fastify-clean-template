@@ -2,6 +2,17 @@
 
 ## Status
 
+**Amended by [ADR-0010](0010-ports-folder-and-service-adapters.md)**: the
+Decision below names the rule mechanics of its day. The SDK exemption for a
+`lib/` helper is now written in that technology's `ADAPTERS` row
+(`alsoDependsOn` for the adapter, `sdkAlsoIn` for the helper) rather than in
+`aws-sdk-only-in-s3-implementations` and `S3_IMPLEMENTATION_ALLOWED`; the
+transport port lives in `ports/<capability>.port.ts`; and a vendor a module
+_calls_ is `mail.sendgrid.service.ts`, not `mail.sendgrid.repository.ts`.
+**Applied by [ADR-0012](0012-no-policy-in-an-adapter.md)**, which spells out
+what "one attempt, policy in the service" means for an adapter and adds the
+correctable-attempt form. The three questions and their answers stand.
+
 Accepted. Builds on [ADR-0006](0006-module-contracts.md) (a capability is
 published from the provider side) and [ADR-0007](0007-one-ports-file.md)
 (implementations named by technology); refines what

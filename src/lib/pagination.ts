@@ -13,3 +13,17 @@ export type PageQuery = {
     limit: number;
     cursor?: number;
 };
+
+export const pageOf = <TRow, TItem extends { id: number }>(
+    rows: TRow[],
+    limit: number,
+    toItem: (row: TRow) => TItem,
+): Page<TItem> => {
+    const items = rows.slice(0, limit).map(toItem);
+    const last = items.at(-1);
+
+    return {
+        items,
+        nextCursor: rows.length > limit && last ? last.id : null,
+    };
+};

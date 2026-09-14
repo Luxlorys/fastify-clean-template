@@ -2,7 +2,11 @@
 
 ## Status
 
-Accepted.
+Accepted. The file roles inside a module have since changed:
+[ADR-0010](0010-ports-folder-and-service-adapters.md) moved abstract types into
+`ports/<role>.port.ts` and added `<module>.<tech>.service.ts` adapters, and
+[ADR-0011](0011-dto-folder-per-module.md) moved transfer models into
+`dto/<model>.dto.ts`. Vertical modules, layered inside, stand unchanged.
 
 ## Context
 

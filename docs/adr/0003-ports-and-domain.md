@@ -2,6 +2,12 @@
 
 ## Status
 
+Amended by [ADR-0010](0010-ports-folder-and-service-adapters.md) and
+[ADR-0011](0011-dto-folder-per-module.md): port types now live in
+`ports/<role>.port.ts` (`TaskRepository` in `ports/repository.port.ts`), transfer
+models in `dto/<model>.dto.ts`, and an adapter for a capability the module calls
+is `<module>.<technology>.service.ts`. What a port _is_ is unchanged.
+
 Accepted, amended by [ADR-0008](0008-dto-at-the-application-boundary.md): the
 last Decision bullet below rejected a DTO between service and routes. That half
 is superseded — a service now returns a `<Name>Dto` and the entity stops at its

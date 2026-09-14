@@ -2,6 +2,11 @@
 
 ## Status
 
+Amended again by [ADR-0010](0010-ports-folder-and-service-adapters.md): the
+published API is back in a file of its own, `ports/public-api.port.ts`, and
+`modules-are-islands` admits only that file across a border — so "take only the
+public API" is enforced again, as this ADR originally decided.
+
 Accepted, amended by [ADR-0007](0007-one-ports-file.md): the published contract
 still exists and still types the decoration, but it now lives as the
 `<Name>PublicApi` section of the module's `*.ports.ts` rather than in its own

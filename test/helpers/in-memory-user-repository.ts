@@ -2,7 +2,7 @@ import { systemClock } from "@/lib/clock.js";
 import { EmailTakenError } from "@/modules/user/user.errors.js";
 import type { Clock } from "@/lib/clock.js";
 import type { User } from "@/modules/user/user.entity.js";
-import type { UserRepository } from "@/modules/user/user.ports.js";
+import type { UserRepository } from "@/modules/user/ports/repository.port.js";
 
 /**
  * Genuine implementation of the UserRepository port. It honors the same
